@@ -1,3 +1,6 @@
+import base64
+from pathlib import Path
+
 import streamlit as st
 
 from components.styles import load_css
@@ -15,6 +18,31 @@ load_css()
 
 def html(markup: str):
     st.markdown(markup, unsafe_allow_html=True)
+
+
+def image_to_base64(image_path: str) -> str:
+    """
+    로컬 이미지 파일을 base64 문자열로 변환한다.
+    Streamlit HTML 내부에서 상대경로 이미지가 깨지는 문제를 방지하기 위한 함수이다.
+    """
+    path = Path(image_path)
+
+    if not path.exists():
+        st.error(f"이미지 파일을 찾을 수 없습니다: {image_path}")
+        return ""
+
+    return base64.b64encode(path.read_bytes()).decode("utf-8")
+
+
+kaist_img_base64 = image_to_base64("assets/kaist.jpg")
+
+if kaist_img_base64:
+    kaist_img_tag = (
+        f'<img src="data:image/jpeg;base64,{kaist_img_base64}" '
+        f'alt="KAIST AI College image">'
+    )
+else:
+    kaist_img_tag = '<div class="image-fallback">KAIST Image Not Found</div>'
 
 
 html(
@@ -49,7 +77,7 @@ html(
     '</div>'
     '</div>'
     '<div class="hero-image-wrap">'
-    '<img src="https://i.ibb.co/675rFvd7/326685445-5901197959968048-7858770690322114254-n.png">'
+    f'{kaist_img_tag}'
     '</div>'
     '</section>'
 )
