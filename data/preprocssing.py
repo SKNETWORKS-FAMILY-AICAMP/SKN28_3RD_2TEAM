@@ -25,7 +25,7 @@ import pandas as pd
 # 예: BASE_DIR = Path(r"C:\Users\Playdata\workspace\kaist_data")
 BASE_DIR = Path(r"C:\Users\Playdata\workspace\SKN28-third-2TEAM\data\raw_data")  
 
-OUT_DIR = BASE_DIR / "processed"
+OUT_DIR = BASE_DIR.parent / "processed"
 SQL_DIR = OUT_DIR / "sql"
 VECTOR_DIR = OUT_DIR / "vectorstore"
 REPORT_DIR = OUT_DIR / "reports"
