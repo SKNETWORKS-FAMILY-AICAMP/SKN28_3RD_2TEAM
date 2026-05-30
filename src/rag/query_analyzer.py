@@ -28,6 +28,12 @@ ContentType = Literal[
     "mixed_media",
 ]
 
+ProgramType = Literal[
+    "master",
+    "doctor",
+    "integrated",
+]
+
 
 @dataclass(frozen=True)
 class DepartmentInfo:
@@ -64,6 +70,7 @@ class QueryAnalysis:
     intent: IntentType = "general_info"
     intent_description: str = "일반 정보 질문"
     content_type: ContentType | None = None
+    program_type: ProgramType | None = None
 
     metadata_filter: dict[str, Any] | None = None
 
@@ -376,6 +383,7 @@ class QuestionAnalyzer:
         intent = intent_rule.intent if intent_rule else "general_info"
         intent_description = intent_rule.description if intent_rule else "일반 정보 질문"
         content_type = intent_rule.content_type if intent_rule else None
+        program_type = self._detect_program_type(normalized_question)
 
         route, route_reason = self._decide_route(
             normalized_question=normalized_question,
@@ -410,6 +418,7 @@ class QuestionAnalyzer:
             normalized_question=normalized_question,
             department_name=department_name,
             intent_rule=intent_rule,
+            program_type=program_type,
         )
 
         display_question = self._build_display_question(
@@ -431,6 +440,7 @@ class QuestionAnalyzer:
             intent=intent,
             intent_description=intent_description,
             content_type=content_type,
+            program_type=program_type,
             metadata_filter=metadata_filter,
             sql_table_hint=intent_rule.sql_table_hint if intent_rule else None,
             sql_task_hint=intent_rule.sql_task_hint if intent_rule else None,
@@ -493,6 +503,23 @@ class QuestionAnalyzer:
 
         return None, []
 
+    def _detect_program_type(
+        self,
+        normalized_question: str,
+    ) -> ProgramType | None:
+        text = normalized_question.lower().replace(" ", "")
+
+        if "석박사" in text or "통합과정" in text or "석사박사통합" in text:
+            return "integrated"
+
+        if "박사" in text or "doctoral" in text or "phd" in text:
+            return "doctor"
+
+        if "석사" in text or "master" in text:
+            return "master"
+
+        return None
+
     def _decide_route(
         self,
         normalized_question: str,
@@ -549,15 +576,26 @@ class QuestionAnalyzer:
         normalized_question: str,
         department_name: str | None,
         intent_rule: IntentRule | None,
+        program_type: ProgramType | None = None,
     ) -> str:
         parts = [normalized_question]
-
+    
         if department_name and department_name not in normalized_question:
             parts.append(department_name)
-
+    
         if intent_rule:
-            parts.append(intent_rule.vector_search_terms)
-
+            if intent_rule.intent == "admission_info" and program_type:
+                parts.append("대학원 입학 지원 자격 모집 전형")
+    
+                if program_type == "master":
+                    parts.append("석사과정 석사 지원 자격 학사학위자")
+                elif program_type == "doctor":
+                    parts.append("박사과정 박사 지원 자격 석사학위자")
+                elif program_type == "integrated":
+                    parts.append("석박사 통합과정 통합과정 지원 자격")
+            else:
+                parts.append(intent_rule.vector_search_terms)
+    
         return re.sub(r"\s+", " ", " ".join(parts)).strip()
 
     def _build_display_question(
@@ -647,14 +685,15 @@ def run_examples() -> None:
 
     questions = [
         "AI컴퓨팅학과 석사 지원 자격은?",
+        "AI컴퓨팅학과 박사 지원 자격은?",
+        "AI컴퓨팅학과 석박사 통합과정 지원 자격은?",
+        "AI컴퓨팅학과 학과설명회 정보 알려줘",
         "AI시스템학과 교과목 알려줘",
         "AI시스템학과 교과목 목록과 각 과목 설명도 알려줘",
         "AX학과 교수진 이메일 목록 보여줘",
         "AX학과 교수 연구분야도 설명해줘",
         "KAIST 학과 사무실 전화번호 알려줘",
-        "AI컴퓨팅학과 학과설명회 정보 알려줘",
         "교수진도 알려줘",
-        "자료 다운로드 링크 알려줘",
     ]
 
     for question in questions:

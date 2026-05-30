@@ -87,6 +87,8 @@ class RetrievedVectorDocument:
                 "dept_name": metadata.get("dept_name"),
                 "content_type": metadata.get("content_type"),
                 "title": metadata.get("title"),
+                "section": metadata.get("section"),
+                "admission_type": metadata.get("admission_type"),
                 "source": metadata.get("source") or metadata.get("source_url"),
             },
             "preview": self.document.page_content[:500],
@@ -180,14 +182,16 @@ class LightweightReranker:
             document_keywords,
         )
         metadata_score = self._metadata_match_score(analysis, metadata)
+        program_score = self._program_type_score(analysis, item)
         vector_score = self._normalized_vector_score(item.score)
         stage_score = self._stage_score(item.search_stage)
 
         final_score = (
-            keyword_score * 0.35
-            + metadata_score * 0.30
-            + vector_score * 0.20
-            + stage_score * 0.15
+            keyword_score * 0.25
+            + metadata_score * 0.25
+            + program_score * 0.25
+            + vector_score * 0.15
+            + stage_score * 0.10
         )
 
         return round(final_score, 6)
@@ -253,6 +257,56 @@ class LightweightReranker:
             return 0.0
 
         return score / max_score
+
+    def _program_type_score(
+        self,
+        analysis: QueryAnalysis,
+        item: RetrievedVectorDocument,
+    ) -> float:
+        program_type = getattr(analysis, "program_type", None)
+
+        if not program_type:
+            return 0.5
+
+        metadata = item.document.metadata
+
+        if metadata.get("content_type") != "admission":
+            return 0.3
+
+        title = str(metadata.get("title") or "")
+        section = str(metadata.get("section") or "")
+        admission_type = str(metadata.get("admission_type") or "")
+        content = item.document.page_content[:1000]
+
+        text = f"{title} {section} {admission_type} {content}".lower()
+        compact_text = text.replace(" ", "")
+
+        if program_type == "master":
+            if "석사과정" in compact_text and "석박사" not in compact_text:
+                return 1.0
+            if "석사" in compact_text and "석박사" not in compact_text:
+                return 0.85
+            if "석박사" in compact_text or "통합과정" in compact_text:
+                return 0.1
+            return 0.4
+
+        if program_type == "doctor":
+            if "박사과정" in compact_text and "석박사" not in compact_text:
+                return 1.0
+            if "박사" in compact_text and "석박사" not in compact_text:
+                return 0.85
+            if "석박사" in compact_text or "통합과정" in compact_text:
+                return 0.15
+            return 0.4
+
+        if program_type == "integrated":
+            if "석박사" in compact_text or "통합과정" in compact_text:
+                return 1.0
+            if "석사" in compact_text and "박사" in compact_text:
+                return 0.75
+            return 0.25
+
+        return 0.5
 
     def _normalized_vector_score(self, vector_score: float | None) -> float:
         if vector_score is None:
@@ -612,12 +666,13 @@ def run_examples() -> None:
 
     example_questions = [
         "AI컴퓨팅학과 석사 지원 자격은?",
+        "AI컴퓨팅학과 박사 지원 자격은?",
+        "AI컴퓨팅학과 석박사 통합과정 지원 자격은?",
+        "AI컴퓨팅학과 학과설명회 정보 알려줘",
         "AI시스템학과 교과목 알려줘",
         "AI시스템학과 교과목 목록과 각 과목 설명도 알려줘",
         "AX학과 교수진 이메일 목록 보여줘",
         "AX학과 교수 연구분야도 설명해줘",
-        "KAIST 학과 사무실 전화번호 알려줘",
-        "AI컴퓨팅학과 학과설명회 정보 알려줘",
         "교수진도 알려줘",
     ]
 
