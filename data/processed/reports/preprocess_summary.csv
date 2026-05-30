@@ -1,0 +1,15 @@
+﻿output_type,file_name,path,row_count,column_count
+sql_csv,admissions.csv,C:\Users\Playdata\workspace\SKN28-third-2TEAM\data\processed\csv\admissions.csv,74,17.0
+sql_csv,assets.csv,C:\Users\Playdata\workspace\SKN28-third-2TEAM\data\processed\csv\assets.csv,494,16.0
+sql_csv,attachments.csv,C:\Users\Playdata\workspace\SKN28-third-2TEAM\data\processed\csv\attachments.csv,4,18.0
+sql_csv,courses.csv,C:\Users\Playdata\workspace\SKN28-third-2TEAM\data\processed\csv\courses.csv,109,15.0
+sql_csv,course_track_map.csv,C:\Users\Playdata\workspace\SKN28-third-2TEAM\data\processed\csv\course_track_map.csv,206,13.0
+sql_csv,department_offices.csv,C:\Users\Playdata\workspace\SKN28-third-2TEAM\data\processed\csv\department_offices.csv,41,8.0
+sql_csv,events.csv,C:\Users\Playdata\workspace\SKN28-third-2TEAM\data\processed\csv\events.csv,4,12.0
+sql_csv,kaist_links.csv,C:\Users\Playdata\workspace\SKN28-third-2TEAM\data\processed\csv\kaist_links.csv,7,4.0
+sql_csv,kaist_profile.csv,C:\Users\Playdata\workspace\SKN28-third-2TEAM\data\processed\csv\kaist_profile.csv,9,5.0
+sql_csv,kaist_statistics.csv,C:\Users\Playdata\workspace\SKN28-third-2TEAM\data\processed\csv\kaist_statistics.csv,12,6.0
+sql_csv,people.csv,C:\Users\Playdata\workspace\SKN28-third-2TEAM\data\processed\csv\people.csv,246,19.0
+sql_csv,quality_report.csv,C:\Users\Playdata\workspace\SKN28-third-2TEAM\data\processed\csv\quality_report.csv,14,3.0
+vector_json,vector_documents.json,C:\Users\Playdata\workspace\SKN28-third-2TEAM\data\processed\json\vector_documents.json,699,
+vector_jsonl,vector_documents.jsonl,C:\Users\Playdata\workspace\SKN28-third-2TEAM\data\processed\json\vector_documents.jsonl,699,
