@@ -18,6 +18,17 @@ KAIST AI대학 4개 학과(AIC·AX·AI Systems·FX) 크롤링 데이터를 MySQL
 
 ---
 
+## 설계 원칙 (요약)
+
+자세한 다이어그램·설명은 [`ERD.md`](ERD.md) 참고. 핵심만 요약하면:
+
+- **주제 영역 3분할** — ① 업무 도메인(department·person·course·track·course_track·admission·event) ② 수집/자원(asset·attachment) ③ RAG(rag_document·rag_chunk). ERD도 영역별 도표로 나눠 발표 자료에 담기 쉽게 했습니다.
+- **키 전략 통일** — 크롤링이 준 고유 ID가 있으면 자연키 PK(VARCHAR: `record_id`/`doc_id`/`chunk_id`), 없는 파생 엔터티만 인조키(`BIGINT AUTO_INCREMENT`: `track_id`/`attachment_id`) + `UNIQUE` 로 업무 고유성 보장.
+- **정규화(3NF)** — `dept_name` 을 `department` 한 곳으로 모으고, `rag_chunk` 의 문서 메타(dept·title·source_url 등 6컬럼, 523행 전수 중복)는 `rag_document` 와 이행적 종속이라 제거. 학과·제목은 `doc_id` 로 JOIN 해서 얻습니다.
+- **참조 명확화** — `attachment` 의 실제 부모는 게시글(post)이며 `board` 로 admission/event 가 갈립니다(`(dept,board,post_id)` UNIQUE 로 식별). 교수↔과목 M:N 은 크롤링 데이터에 연결 정보가 없어 **데이터 갭**으로 남겨두었습니다.
+
+---
+
 ## 환경 설정
 
 ### 요구사항
@@ -95,7 +106,7 @@ mysql -u your_user -pyour_password --local-infile=1 -e "source sql/03_verify.sql
 | asset | 270 | 링크·이미지 (원본 494행, 중복 224행 제거) |
 | attachment | 4 | PDF 첨부파일 |
 | rag_document | 482 | 문서 메타데이터 |
-| rag_chunk | 523 | RAG 검색용 청크 |
+| rag_chunk | 523 | RAG 검색용 청크 (문서 메타는 rag_document 에서 JOIN) |
 | quality_report | 14 | 검산 지표 (독립 테이블) |
 
 ---

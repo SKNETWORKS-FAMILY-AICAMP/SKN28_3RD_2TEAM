@@ -5,6 +5,24 @@
 --
 --  각 컬럼의 COMMENT '...' = 논리명(한국어).
 --  ERDCloud 등에서 이 DDL을 import 하면 COMMENT가 '논리명'으로 매핑된다.
+--
+--  ── 키 전략 (PK/FK 통일 원칙) ───────────────────────────────────────
+--   1) 자연키 우선: 크롤링이 제공한 고유 ID가 있으면 그것을 PK로 쓴다.
+--                  (person/course/admission/event/asset=record_id,
+--                   rag_document=doc_id, rag_chunk=chunk_id)  타입: VARCHAR
+--   2) 인조키 예외: 원본에 고유 ID가 없는 '파생 엔터티'만 대리키를 부여한다.
+--                  (track, attachment) 타입: BIGINT AUTO_INCREMENT 로 통일.
+--                  이때 업무 고유성은 반드시 UNIQUE 제약으로 보장한다.
+--   3) dept(VARCHAR(20)) 는 학과 코드라는 '의미 있는 자연 코드키'다.
+--  ─────────────────────────────────────────────────────────────────
+--
+--  ── 주제 영역(subject area) 구분 ────────────────────────────────────
+--   · 업무 도메인 : department, person, course, track, course_track,
+--                   admission, event
+--   · 수집/자원   : asset, attachment   (크롤링 산출물)
+--   · RAG 검색    : rag_document, rag_chunk
+--   · 독립        : quality_report
+--  ─────────────────────────────────────────────────────────────────
 -- =====================================================================
 
 -- 1) 데이터베이스 생성 ----------------------------------------------------
@@ -160,11 +178,17 @@ CREATE TABLE asset (
 ) ENGINE=InnoDB COMMENT='자원 (링크/이미지/연락처)';
 
 -- 첨부파일(PDF) : 원본에 record_id 가 없다 → 인조키(AUTO_INCREMENT) 부여
+--  [참조 대상 설명] 이 PDF의 '진짜 부모'는 학과가 아니라 게시글(post)이다.
+--   (dept, board, post_id) 조합이 출처 게시글을 가리키며, board 값에 따라
+--   그 게시글은 admission(입학 안내) 또는 event(공지) 로 실체화된다.
+--   다만 post_id 는 admission/event 의 record_id '일부'(부분 문자열)일 뿐
+--   완전한 키가 아니라 단일 FK 로 강제할 수 없다 → dept 만 FK 로 두고,
+--   게시글 출처는 (dept,board,post_id) UNIQUE 로 식별 + 본 주석으로 명시한다.
 CREATE TABLE attachment (
-    attachment_id          INT          NOT NULL AUTO_INCREMENT  COMMENT '첨부 ID (대리키)',
+    attachment_id          BIGINT       NOT NULL AUTO_INCREMENT  COMMENT '첨부 ID (대리키)',
     dept                   VARCHAR(20)  NOT NULL    COMMENT '학과 코드 (FK)',
-    board                  VARCHAR(100)             COMMENT '게시판',
-    post_id                VARCHAR(100)             COMMENT '게시글 ID',
+    board                  VARCHAR(100)             COMMENT '게시판 (출처 게시글 구분: admission_* → 입학, site_page/news → 행사)',
+    post_id                VARCHAR(100)             COMMENT '게시글 ID (admission/event record_id 의 부분 식별자)',
     filename               VARCHAR(255)             COMMENT '파일명',
     url                    VARCHAR(1000)            COMMENT 'URL',
     ext                    VARCHAR(20)              COMMENT '확장자',
@@ -178,10 +202,11 @@ CREATE TABLE attachment (
     crawled_at             VARCHAR(40)              COMMENT '수집 시각',
     missing_fields         VARCHAR(255)             COMMENT '누락 필드 목록',
     CONSTRAINT pk_attachment PRIMARY KEY (attachment_id),
+    CONSTRAINT uq_attachment UNIQUE (dept, board, post_id, filename),  -- 인조키지만 업무 고유성 보장 (키 전략 원칙 2)
     CONSTRAINT fk_attachment_dept FOREIGN KEY (dept)
         REFERENCES department (dept)
         ON UPDATE CASCADE ON DELETE RESTRICT
-) ENGINE=InnoDB COMMENT='첨부파일 (PDF)';
+) ENGINE=InnoDB COMMENT='첨부파일 (PDF) — 부모는 게시글(post), board로 admission/event 구분';
 
 
 -- =====================================================================
@@ -190,7 +215,7 @@ CREATE TABLE attachment (
 
 -- 트랙/분야 마스터 : 원본엔 이름만 있어 인조키 부여 + (학과,이름) 유일 보장
 CREATE TABLE track (
-    track_id   INT          NOT NULL AUTO_INCREMENT COMMENT '트랙 ID (대리키)',
+    track_id   BIGINT       NOT NULL AUTO_INCREMENT COMMENT '트랙 ID (대리키)',
     dept       VARCHAR(20)  NOT NULL                COMMENT '학과 코드 (FK)',
     track_name VARCHAR(255) NOT NULL                COMMENT '트랙명',
     CONSTRAINT pk_track PRIMARY KEY (track_id),
@@ -203,7 +228,7 @@ CREATE TABLE track (
 -- 교차 엔터티 : '과목 1건 - 트랙 1건' 연결을 한 행으로 저장
 CREATE TABLE course_track (
     course_id  VARCHAR(255) NOT NULL                COMMENT '과목 ID (FK)',
-    track_id   INT          NOT NULL                COMMENT '트랙 ID (FK)',
+    track_id   BIGINT       NOT NULL                COMMENT '트랙 ID (FK)',
     course_type VARCHAR(50)                         COMMENT '이수구분 (해당 트랙에서)',
     CONSTRAINT pk_course_track PRIMARY KEY (course_id, track_id),  -- 복합 기본키
     CONSTRAINT fk_ct_course FOREIGN KEY (course_id)
@@ -218,7 +243,8 @@ CREATE TABLE course_track (
 
 
 -- =====================================================================
---  (선택) RAG 검색용 비정형 텍스트 — 정규화 대상은 아니지만 함께 보관
+--  RAG 검색용 텍스트 (문서 1 : 청크 N)
+--  문서 메타는 rag_document 에 한 번만 두고, rag_chunk 는 청크 고유 컬럼만 (3NF).
 -- =====================================================================
 
 -- 문서 단위 메타데이터
@@ -238,28 +264,23 @@ CREATE TABLE rag_document (
 ) ENGINE=InnoDB COMMENT='RAG 문서 메타데이터';
 
 -- 청크(임베딩 후보 텍스트 조각) : 문서 1 : 청크 N
+--  [정규화 정리] dept/source_type/title/source_url/source_board/crawled_at 는
+--   doc_id 에만 종속(이행적 종속)되어 rag_document 와 100% 중복이었다(523행 검증).
+--   → 3NF 위반이라 제거. 필요 시 doc_id 로 rag_document 를 JOIN 해서 얻는다.
+--   남긴 컬럼은 '청크 고유' 속성뿐이다.
 CREATE TABLE rag_chunk (
     chunk_id         VARCHAR(255) NOT NULL          COMMENT '청크 ID',
-    doc_id           VARCHAR(255) NOT NULL          COMMENT '문서 ID (FK)',
-    dept             VARCHAR(20)  NOT NULL          COMMENT '학과 코드 (FK, 비정규화: rag_document.dept와 중복 / 조회 최적화)',
-    source_type      VARCHAR(50)                    COMMENT '출처 유형',
-    title            VARCHAR(500)                   COMMENT '제목',
+    doc_id           VARCHAR(255) NOT NULL          COMMENT '문서 ID (FK → rag_document)',
     section_path     VARCHAR(500)                   COMMENT '섹션 경로',
     chunk_text       TEXT                           COMMENT '청크 텍스트',
-    source_url       VARCHAR(500)                   COMMENT '출처 URL',
-    source_board     VARCHAR(100)                   COMMENT '출처 게시판',
-    source_record_id VARCHAR(255)                   COMMENT '원본 레코드 ID (다형 참조, FK 미설정)',
-    crawled_at       VARCHAR(40)                    COMMENT '수집 시각',
+    source_record_id VARCHAR(255)                   COMMENT '원본 레코드 ID (다형/비정형 출처추적: record_id·URL·자유텍스트 혼재 → FK 미설정)',
     missing_fields   VARCHAR(255)                   COMMENT '누락 필드 목록',
     metadata_json    TEXT                           COMMENT '메타데이터 (JSON 문자열)',
     CONSTRAINT pk_rag_chunk PRIMARY KEY (chunk_id),
     CONSTRAINT fk_chunk_doc FOREIGN KEY (doc_id)
         REFERENCES rag_document (doc_id)
-        ON UPDATE CASCADE ON DELETE CASCADE,
-    CONSTRAINT fk_chunk_dept FOREIGN KEY (dept)
-        REFERENCES department (dept)
-        ON UPDATE CASCADE ON DELETE RESTRICT
-) ENGINE=InnoDB COMMENT='RAG 검색용 청크';
+        ON UPDATE CASCADE ON DELETE CASCADE
+) ENGINE=InnoDB COMMENT='RAG 검색용 청크 (문서 메타는 rag_document 에서 JOIN)';
 
 
 -- =====================================================================

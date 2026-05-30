@@ -216,11 +216,13 @@ SELECT doc_id, dept, source_type, title, NULLIF(source_url,''), NULLIF(source_bo
        CAST(CAST(NULLIF(chunk_count,'') AS DECIMAL(10,2)) AS UNSIGNED)  -- "1.0" → 1
 FROM stg_rag_documents;
 
--- 3-11) rag_chunk
+-- 3-11) rag_chunk : 문서 메타(dept/source_type/title/source_url/source_board/crawled_at)는
+--       rag_document 와 100% 중복(이행적 종속)이라 정규화 정리로 제거됨 → 청크 고유 컬럼만 적재.
+--       (스테이징은 CSV 원본 그대로 받되, 여기서 필요한 열만 골라 넣는다)
 INSERT IGNORE INTO rag_chunk
-SELECT chunk_id, doc_id, dept, source_type, title, section_path, chunk_text,
-       source_url, NULLIF(source_board,''), NULLIF(source_record_id,''),
-       crawled_at, missing_fields, metadata_json
+ (chunk_id, doc_id, section_path, chunk_text, source_record_id, missing_fields, metadata_json)
+SELECT chunk_id, doc_id, section_path, chunk_text,
+       NULLIF(source_record_id,''), missing_fields, metadata_json
 FROM stg_rag_chunks;
 
 -- 3-12) quality_report : 원본 끝에 붙은 빈 행은 버리고 실제 지표만.

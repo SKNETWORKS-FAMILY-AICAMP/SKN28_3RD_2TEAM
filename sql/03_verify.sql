@@ -119,3 +119,17 @@ WHERE x.cnt > (
     ) AS y
 )
 ORDER BY x.cnt DESC;
+
+
+-- ---------------------------------------------------------------------
+-- [J] 정규화(3NF) 정리 결과 확인 : 학과별 RAG 청크 수
+--   rag_chunk 에서 dept 를 제거했으므로 학과는 rag_document 를 거쳐 얻는다.
+--     rag_chunk → (doc_id) → rag_document → (dept) → department
+--   "중복 컬럼을 지워도 JOIN 으로 같은 정보를 얻는다"는 정규화의 핵심을 보여준다.
+-- ---------------------------------------------------------------------
+SELECT d.dept_name, COUNT(*) AS chunk_count
+FROM rag_chunk ch
+JOIN rag_document rd ON rd.doc_id = ch.doc_id
+JOIN department  d  ON d.dept    = rd.dept
+GROUP BY d.dept_name
+ORDER BY chunk_count DESC;
