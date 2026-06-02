@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -12,15 +12,6 @@ except ModuleNotFoundError:
     def load_dotenv(*args: Any, **kwargs: Any) -> bool:
         return False
 
-try:
-    import pymysql
-    from pymysql.cursors import DictCursor
-except ModuleNotFoundError as exc:
-    raise ModuleNotFoundError(
-        "pymysql이 설치되어 있지 않습니다. 아래 명령어로 설치하세요.\n"
-        "python -m pip install pymysql python-dotenv"
-    ) from exc
-
 
 CURRENT_FILE = Path(__file__).resolve()
 PROJECT_ROOT = CURRENT_FILE.parents[2]
@@ -29,59 +20,118 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.rag.query_analyzer import QueryAnalysis
-from src.rag.context_builder import SqlQueryResult
+
+
+# ============================================================
+# 1. 상수
+# ============================================================
+
+SUPPORTED_AI_COLLEGE_DEPT_CODES = ["aic", "ai_systems", "ax", "fx"]
+
+DEPT_NAME_MAP = {
+    "aic": "AI컴퓨팅학과",
+    "ai_systems": "AI시스템학과",
+    "ax": "AX학과",
+    "fx": "AI미래학과",
+}
+
+DEPT_ORDER_SQL = "FIELD(dept, 'aic', 'ai_systems', 'ax', 'fx')"
+
+
+# ============================================================
+# 2. 결과 / 설정 dataclass
+# ============================================================
+
+@dataclass
+class SqlQueryResult:
+    """
+    SQLTool 조회 결과 객체.
+
+    이 클래스는 sql_tool.py 내부에서 직접 관리한다.
+    context_builder.py는 이 객체를 정의하지 않고 rows/table_name만 읽는다.
+    """
+
+    table_name: str | None = None
+    rows: list[dict[str, Any]] = field(default_factory=list)
+    columns: list[str] = field(default_factory=list)
+    conditions: dict[str, Any] = field(default_factory=dict)
+    message: str = ""
+    warnings: list[str] = field(default_factory=list)
+
+    status: str = "ok"
+    query: str | None = None
+    params: Any | None = None
+    sql_task_hint: str | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+    @property
+    def row_count(self) -> int:
+        return len(self.rows or [])
+
+    @property
+    def results(self) -> list[dict[str, Any]]:
+        return self.rows
+
+    def is_empty(self) -> bool:
+        return self.row_count == 0
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "table_name": self.table_name,
+            "rows": self.rows,
+            "columns": self.columns,
+            "conditions": self.conditions,
+            "row_count": self.row_count,
+            "message": self.message,
+            "warnings": self.warnings,
+            "status": self.status,
+            "query": self.query,
+            "params": self.params,
+            "sql_task_hint": self.sql_task_hint,
+            "metadata": self.metadata,
+        }
+
+    def to_debug_dict(self) -> dict[str, Any]:
+        return self.to_dict()
 
 
 @dataclass
 class SQLToolConfig:
-    """
-    MySQL 기반 SQLTool 설정입니다.
-
-    .env 예시:
-        KAIST_MYSQL_HOST=127.0.0.1
-        KAIST_MYSQL_PORT=3306
-        KAIST_MYSQL_USER=root
-        KAIST_MYSQL_PASSWORD=비밀번호
-        KAIST_MYSQL_DATABASE=kaist_ai
-        KAIST_SQL_MAX_ROWS=100
-    """
-
     host: str = "127.0.0.1"
     port: int = 3306
     user: str = "root"
     password: str = ""
     database: str = "kaist_ai"
     charset: str = "utf8mb4"
-    max_rows: int = 100
-    connect_timeout: int = 5
+    max_rows: int = 300
 
     @classmethod
     def from_env(cls) -> "SQLToolConfig":
         load_dotenv()
 
+        def env_first(*names: str, default: str = "") -> str:
+            for name in names:
+                value = os.getenv(name)
+                if value not in {None, ""}:
+                    return str(value)
+            return default
+
         return cls(
-            host=os.getenv("KAIST_MYSQL_HOST", "127.0.0.1"),
-            port=int(os.getenv("KAIST_MYSQL_PORT", "3306")),
-            user=os.getenv("KAIST_MYSQL_USER", "root"),
-            password=os.getenv("KAIST_MYSQL_PASSWORD", ""),
-            database=os.getenv("KAIST_MYSQL_DATABASE", "kaist_ai"),
-            charset="utf8mb4",
-            max_rows=int(os.getenv("KAIST_SQL_MAX_ROWS", "100")),
-            connect_timeout=int(os.getenv("KAIST_MYSQL_CONNECT_TIMEOUT", "5")),
+            host=env_first("KAIST_SQL_HOST", "MYSQL_HOST", "DB_HOST", default="127.0.0.1"),
+            port=int(env_first("KAIST_SQL_PORT", "MYSQL_PORT", "DB_PORT", default="3306")),
+            user=env_first("KAIST_SQL_USER", "MYSQL_USER", "DB_USER", default="root"),
+            password=env_first("KAIST_SQL_PASSWORD", "MYSQL_PASSWORD", "DB_PASSWORD", default=""),
+            database=env_first("KAIST_SQL_DATABASE", "MYSQL_DATABASE", "DB_NAME", default="kaist_ai"),
+            charset=env_first("KAIST_SQL_CHARSET", "MYSQL_CHARSET", default="utf8mb4"),
+            max_rows=int(env_first("KAIST_SQL_MAX_ROWS", default="300")),
         )
 
-SUPPORTED_AI_COLLEGE_DEPT_CODES = ("aic", "ai_systems", "ax", "fx")
+
+# ============================================================
+# 3. SQLTool
+# ============================================================
 
 class SQLTool:
-    """
-    KAIST AI 대학원 RAG Agent용 MySQL 조회 도구입니다.
-
-    역할:
-    - QueryAnalysis.sql_task_hint에 따라 MySQL 테이블 조회
-    - 조회 결과를 ContextBuilder가 받을 수 있는 SqlQueryResult 형태로 반환
-    - RagPipeline에서 sql_retriever=SQLTool() 형태로 바로 연결 가능
-    """
-
     TABLE_HINT_MAP = {
         "courses": "course",
         "course": "course",
@@ -110,23 +160,15 @@ class SQLTool:
 
     def __init__(self, config: SQLToolConfig | None = None) -> None:
         self.config = config or SQLToolConfig.from_env()
+        self.driver_name = self._select_driver()
 
-    # ============================================================
-    # RagPipeline 연결용 인터페이스
-    # ============================================================
-
-    def search(self, analysis: QueryAnalysis) -> SqlQueryResult:
-        return self.query(analysis)
-
-    def __call__(self, analysis: QueryAnalysis) -> SqlQueryResult:
-        return self.query(analysis)
-
-    # ============================================================
-    # Query router
-    # ============================================================
+    # ------------------------------------------------------------
+    # public API
+    # ------------------------------------------------------------
 
     def query(self, analysis: QueryAnalysis) -> SqlQueryResult:
         task_hint = analysis.sql_task_hint
+        table_hint = analysis.sql_table_hint
 
         try:
             if task_hint == "course_lookup":
@@ -147,9 +189,6 @@ class SQLTool:
             if task_hint == "asset_lookup":
                 return self._query_assets(analysis)
 
-            if task_hint == "department_overview":
-                return self._query_departments(analysis)
-
             if task_hint == "kaist_profile_lookup":
                 return self._query_kaist_profile(analysis)
 
@@ -165,157 +204,242 @@ class SQLTool:
             if task_hint == "requirement_lookup":
                 return self._query_requirements(analysis)
 
-            return self._unsupported_task_result(analysis)
+            if task_hint == "department_overview":
+                return self._query_departments(analysis)
 
-        except pymysql.err.OperationalError as error:
-            return self._connection_error_result(analysis, error)
+            # table_hint만 들어온 경우 fallback
+            normalized_table = self.TABLE_HINT_MAP.get(str(table_hint), None)
 
-        except Exception as error:
+            if normalized_table == "course":
+                return self._query_courses(analysis)
+
+            if normalized_table == "person":
+                return self._query_people(analysis)
+
+            if normalized_table == "admission":
+                return self._query_admissions(analysis)
+
+            if normalized_table == "event":
+                return self._query_events(analysis)
+
+            if normalized_table == "asset":
+                return self._query_assets(analysis)
+
+            if normalized_table == "kaist_profile":
+                return self._query_kaist_profile(analysis)
+
+            if normalized_table == "kaist_statistics":
+                return self._query_kaist_statistics(analysis)
+
+            if normalized_table == "kaist_links":
+                return self._query_kaist_links(analysis)
+
+            if normalized_table == "department_homepage":
+                return self._query_department_homepages(analysis)
+
+            if normalized_table == "department_requirement":
+                return self._query_requirements(analysis)
+
             return SqlQueryResult(
-                table_name=self._table_name_from_analysis(analysis),
+                table_name=normalized_table or table_hint,
+                rows=[],
+                columns=[],
+                conditions=analysis.sql_conditions,
+                message=f"지원하지 않는 SQL task입니다: {task_hint}",
+                warnings=[f"unsupported sql_task_hint: {task_hint}"],
+                status="unsupported_task",
+                sql_task_hint=task_hint,
+            )
+
+        except Exception as exc:
+            return SqlQueryResult(
+                table_name=table_hint,
                 rows=[],
                 columns=[],
                 conditions=analysis.sql_conditions,
                 message="SQL 조회 중 오류가 발생했습니다.",
-                warnings=[f"{type(error).__name__}: {error}"],
+                warnings=[f"{type(exc).__name__}: {exc}"],
+                status="sql_error",
+                sql_task_hint=task_hint,
             )
 
-    # ============================================================
-    # MySQL connection / metadata helpers
-    # ============================================================
+    def search(self, analysis: QueryAnalysis) -> SqlQueryResult:
+        return self.query(analysis)
 
-    def _connect(self):
-        connection = pymysql.connect(
-            host=self.config.host,
-            port=self.config.port,
-            user=self.config.user,
-            password=self.config.password,
-            database=self.config.database,
-            charset="utf8mb4",
-            use_unicode=True,
-            cursorclass=DictCursor,
-            autocommit=True,
-            connect_timeout=self.config.connect_timeout,
+    def __call__(self, analysis: QueryAnalysis) -> SqlQueryResult:
+        return self.query(analysis)
+
+    # ------------------------------------------------------------
+    # connection
+    # ------------------------------------------------------------
+
+    def _select_driver(self) -> str:
+        try:
+            import pymysql  # noqa: F401
+            return "pymysql"
+        except ModuleNotFoundError:
+            pass
+
+        try:
+            import mysql.connector  # noqa: F401
+            return "mysql_connector"
+        except ModuleNotFoundError:
+            pass
+
+        raise RuntimeError(
+            "MySQL Python 드라이버가 없습니다. "
+            "다음 중 하나를 설치하세요: pip install pymysql 또는 pip install mysql-connector-python"
         )
 
-        with connection.cursor() as cursor:
-            cursor.execute("SET NAMES utf8mb4 COLLATE utf8mb4_unicode_ci")
-            cursor.execute("SET character_set_connection=utf8mb4")
-            cursor.execute("SET character_set_client=utf8mb4")
-            cursor.execute("SET character_set_results=utf8mb4")
+    def _connect(self) -> Any:
+        if self.driver_name == "pymysql":
+            import pymysql
+            return pymysql.connect(
+                host=self.config.host,
+                port=self.config.port,
+                user=self.config.user,
+                password=self.config.password,
+                database=self.config.database,
+                charset=self.config.charset,
+                cursorclass=pymysql.cursors.DictCursor,
+                autocommit=True,
+            )
 
-        return connection
+        if self.driver_name == "mysql_connector":
+            import mysql.connector
+            return mysql.connector.connect(
+                host=self.config.host,
+                port=self.config.port,
+                user=self.config.user,
+                password=self.config.password,
+                database=self.config.database,
+                charset=self.config.charset,
+                use_unicode=True,
+                autocommit=True,
+            )
 
-    def _table_exists(self, conn, table_name: str) -> bool:
+        raise RuntimeError(f"지원하지 않는 MySQL driver입니다: {self.driver_name}")
+
+    def _fetch_all(
+        self,
+        conn: Any,
+        sql: str,
+        params: tuple[Any, ...] = (),
+    ) -> list[dict[str, Any]]:
+        if self.driver_name == "pymysql":
+            with conn.cursor() as cursor:
+                cursor.execute(sql, params)
+                rows = cursor.fetchall()
+                return [dict(row) for row in rows]
+
+        if self.driver_name == "mysql_connector":
+            cursor = conn.cursor(dictionary=True)
+            try:
+                cursor.execute(sql, params)
+                rows = cursor.fetchall()
+                return [dict(row) for row in rows]
+            finally:
+                cursor.close()
+
+        return []
+
+    def _table_exists(self, conn: Any, table_name: str) -> bool:
         sql = """
-        SELECT COUNT(*) AS table_count
+        SELECT COUNT(*) AS cnt
         FROM information_schema.tables
         WHERE table_schema = %s
           AND table_name = %s
         """
-        with conn.cursor() as cursor:
-            cursor.execute(sql, (self.config.database, table_name))
-            row = cursor.fetchone()
+        rows = self._fetch_all(conn, sql, (self.config.database, table_name))
+        return bool(rows and rows[0].get("cnt", 0) > 0)
 
-        return bool(row and int(row.get("table_count", 0)) > 0)
-
-    def _columns(self, conn, table_name: str) -> set[str]:
-        """
-        MySQL information_schema의 컬럼명 key가 환경에 따라
-        column_name / COLUMN_NAME 으로 들어올 수 있으므로 안전하게 처리합니다.
-        """
-        sql = """
-        SELECT COLUMN_NAME AS column_name
-        FROM information_schema.columns
-        WHERE table_schema = %s
-          AND table_name = %s
-        ORDER BY ORDINAL_POSITION
-        """
-        with conn.cursor() as cursor:
-            cursor.execute(sql, (self.config.database, table_name))
-            rows = cursor.fetchall()
-
-        columns: set[str] = set()
-
-        for row in rows:
-            column_name = (
-                row.get("column_name")
-                or row.get("COLUMN_NAME")
-                or row.get("Column_name")
-            )
-
-            if column_name:
-                columns.add(str(column_name))
-
-        return columns
-
-    def _fetch_all(
-        self,
-        conn,
-        sql: str,
-        params: tuple[Any, ...],
-    ) -> list[dict[str, Any]]:
-        with conn.cursor() as cursor:
-            cursor.execute(sql, params)
-            rows = cursor.fetchall()
-
-        return [dict(row) for row in rows]
+    def _columns(self, rows: list[dict[str, Any]]) -> list[str]:
+        if not rows:
+            return []
+        return list(rows[0].keys())
 
     def _limit(self) -> int:
         return max(1, int(self.config.max_rows))
 
-    def _dept_condition(
+    # ------------------------------------------------------------
+    # condition helpers
+    # ------------------------------------------------------------
+
+    def _target_dept_codes(self, analysis: QueryAnalysis) -> list[str]:
+        if analysis.department_code:
+            return [analysis.department_code]
+
+        if analysis.department_codes:
+            return [
+                code for code in analysis.department_codes
+                if code in SUPPORTED_AI_COLLEGE_DEPT_CODES
+            ]
+
+        return SUPPORTED_AI_COLLEGE_DEPT_CODES.copy()
+
+    def _dept_where_clause(
         self,
-        alias: str,
-        dept: str | None,
-        params: list[Any],
-    ) -> str:
-        if dept:
-            params.append(dept)
-            return f"{alias}.dept = %s"
+        analysis: QueryAnalysis,
+        alias: str | None = None,
+    ) -> tuple[str, list[Any]]:
+        dept_codes = self._target_dept_codes(analysis)
+        col = f"{alias}.dept" if alias else "dept"
 
-        placeholders = ", ".join(["%s"] * len(SUPPORTED_AI_COLLEGE_DEPT_CODES))
-        params.extend(SUPPORTED_AI_COLLEGE_DEPT_CODES)
+        if len(dept_codes) == 1:
+            return f"{col} = %s", [dept_codes[0]]
 
-        return f"{alias}.dept IN ({placeholders})"
+        placeholders = ", ".join(["%s"] * len(dept_codes))
+        return f"{col} IN ({placeholders})", list(dept_codes)
 
-    def _build_select_columns(
+    def _dept_name_keywords(self, analysis: QueryAnalysis) -> list[str]:
+        dept_codes = self._target_dept_codes(analysis)
+        names = [DEPT_NAME_MAP.get(code) for code in dept_codes]
+        return [name for name in names if name]
+
+    def _result(
         self,
-        alias: str,
-        available_columns: set[str],
-        preferred_columns: list[str],
-    ) -> list[str]:
-        select_columns = []
+        table_name: str | None,
+        rows: list[dict[str, Any]],
+        analysis: QueryAnalysis,
+        message: str,
+        warnings: list[str] | None = None,
+        query: str | None = None,
+        params: Any | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> SqlQueryResult:
+        return SqlQueryResult(
+            table_name=table_name,
+            rows=rows,
+            columns=self._columns(rows),
+            conditions=analysis.sql_conditions,
+            message=message,
+            warnings=warnings or [],
+            status="ok",
+            query=query,
+            params=params,
+            sql_task_hint=analysis.sql_task_hint,
+            metadata=metadata or {},
+        )
 
-        for column in preferred_columns:
-            if column in available_columns:
-                select_columns.append(f"{alias}.{column}")
-
-        if not select_columns:
-            select_columns.append(f"{alias}.*")
-
-        return select_columns
-
-    def _build_order_clause(
+    def _missing_table_result(
         self,
-        alias: str,
-        available_columns: set[str],
-        preferred_columns: list[str],
-    ) -> str:
-        order_columns = [
-            f"{alias}.{column}"
-            for column in preferred_columns
-            if column in available_columns
-        ]
+        table_name: str,
+        analysis: QueryAnalysis,
+    ) -> SqlQueryResult:
+        return SqlQueryResult(
+            table_name=table_name,
+            rows=[],
+            columns=[],
+            conditions=analysis.sql_conditions,
+            message=f"테이블이 존재하지 않습니다: {table_name}",
+            warnings=[f"missing table: {table_name}"],
+            status="missing_table",
+            sql_task_hint=analysis.sql_task_hint,
+        )
 
-        if not order_columns:
-            return "1"
-
-        return ", ".join(order_columns)
-
-    # ============================================================
-    # Query methods
-    # ============================================================
+    # ------------------------------------------------------------
+    # query methods
+    # ------------------------------------------------------------
 
     def _query_courses(self, analysis: QueryAnalysis) -> SqlQueryResult:
         table_name = "course"
@@ -324,78 +448,45 @@ class SQLTool:
             if not self._table_exists(conn, table_name):
                 return self._missing_table_result(table_name, analysis)
 
-            course_columns = self._columns(conn, table_name)
-            has_department = self._table_exists(conn, "department")
-            has_course_track = self._table_exists(conn, "course_track")
-            has_track = self._table_exists(conn, "track")
+            where_clause, params = self._dept_where_clause(analysis, alias="c")
 
-            params: list[Any] = []
-            where_clause = self._dept_condition("c", analysis.department_code, params)
+            sql = f"""
+            SELECT
+                c.record_id,
+                c.course_id,
+                c.dept,
+                d.dept_name,
+                c.course_level,
+                c.course_code,
+                c.course_code_norm,
+                c.course_name,
+                c.course_type,
+                c.credit,
+                c.course_description,
+                c.source_url,
+                c.crawled_at,
+                c.source_sheet
+            FROM course AS c
+            LEFT JOIN department AS d
+              ON d.dept = c.dept
+            WHERE {where_clause}
+            ORDER BY FIELD(c.dept, 'aic', 'ai_systems', 'ax', 'fx'),
+                     c.course_level,
+                     c.course_code,
+                     c.course_name
+            LIMIT %s
+            """
 
-            if has_department and has_course_track and has_track and "record_id" in course_columns:
-                sql = f"""
-                SELECT
-                    c.record_id,
-                    c.dept,
-                    d.dept_name,
-                    c.course_code,
-                    c.course_name,
-                    c.course_type,
-                    c.credit,
-                    GROUP_CONCAT(t.track_name ORDER BY t.track_name SEPARATOR ', ') AS track_names
-                FROM course AS c
-                LEFT JOIN department AS d
-                    ON d.dept = c.dept
-                LEFT JOIN course_track AS ct
-                    ON ct.course_id = c.record_id
-                LEFT JOIN track AS t
-                    ON t.track_id = ct.track_id
-                WHERE {where_clause}
-                GROUP BY
-                    c.record_id,
-                    c.dept,
-                    d.dept_name,
-                    c.course_code,
-                    c.course_name,
-                    c.course_type,
-                    c.credit
-                ORDER BY
-                    c.dept,
-                    c.course_code,
-                    c.course_name
-                LIMIT %s
-                """
-            elif has_department and "dept" in course_columns:
-                sql = f"""
-                SELECT
-                    c.*,
-                    d.dept_name
-                FROM course AS c
-                LEFT JOIN department AS d
-                    ON d.dept = c.dept
-                WHERE {where_clause}
-                ORDER BY
-                    c.dept,
-                    c.course_code,
-                    c.course_name
-                LIMIT %s
-                """
-            else:
-                sql = f"""
-                SELECT *
-                FROM course AS c
-                WHERE {where_clause}
-                LIMIT %s
-                """
-
-            params.append(self._limit())
-            rows = self._fetch_all(conn, sql, tuple(params))
+            final_params = tuple(params + [self._limit()])
+            rows = self._fetch_all(conn, sql, final_params)
 
         return self._result(
             table_name=table_name,
             rows=rows,
             analysis=analysis,
             message="교과목 조회가 완료되었습니다.",
+            query=sql,
+            params=final_params,
         )
 
     def _query_people(self, analysis: QueryAnalysis) -> SqlQueryResult:
@@ -405,255 +496,183 @@ class SQLTool:
             if not self._table_exists(conn, table_name):
                 return self._missing_table_result(table_name, analysis)
 
-            person_columns = self._columns(conn, table_name)
-            has_department = self._table_exists(conn, "department")
+            where_clause, params = self._dept_where_clause(analysis, alias="p")
 
-            params: list[Any] = []
-            where_clause = self._dept_condition("p", analysis.department_code, params)
+            sql = f"""
+            SELECT
+                p.record_id,
+                p.dept,
+                d.dept_name,
+                p.name,
+                p.name_ko,
+                p.name_en,
+                p.role,
+                p.role_normalized,
+                p.faculty_group,
+                p.email,
+                p.phone,
+                p.office,
+                p.research_area,
+                p.homepage,
+                p.source_url,
+                p.crawled_at,
+                p.source_sheet
+            FROM person AS p
+            LEFT JOIN department AS d
+              ON d.dept = p.dept
+            WHERE {where_clause}
+            ORDER BY FIELD(p.dept, 'aic', 'ai_systems', 'ax', 'fx'),
+                     p.role_normalized,
+                     p.name
+            LIMIT %s
+            """
 
-            preferred_columns = [
-                "record_id",
-                "dept",
-                "name",
-                "role",
-                "role_normalized",
-                "email",
-                "phone",
-                "office",
-                "homepage",
-                "research_area",
-            ]
-
-            select_columns = self._build_select_columns(
-                alias="p",
-                available_columns=person_columns,
-                preferred_columns=preferred_columns,
-            )
-
-            if has_department and "dept" in person_columns:
-                select_clause = ",\n                    ".join(
-                    [
-                        *select_columns,
-                        "d.dept_name",
-                    ]
-                )
-
-                sql = f"""
-                SELECT
-                    {select_clause}
-                FROM person AS p
-                LEFT JOIN department AS d
-                    ON d.dept = p.dept
-                WHERE {where_clause}
-                ORDER BY
-                    p.dept,
-                    p.role_normalized,
-                    p.name
-                LIMIT %s
-                """
-            else:
-                select_clause = ",\n                    ".join(select_columns)
-
-                sql = f"""
-                SELECT
-                    {select_clause}
-                FROM person AS p
-                WHERE {where_clause}
-                LIMIT %s
-                """
-
-            params.append(self._limit())
-            rows = self._fetch_all(conn, sql, tuple(params))
+            final_params = tuple(params + [self._limit()])
+            rows = self._fetch_all(conn, sql, final_params)
 
         return self._result(
             table_name=table_name,
             rows=rows,
             analysis=analysis,
-            message="교수/구성원 조회가 완료되었습니다.",
+            message="교수진/구성원 조회가 완료되었습니다.",
+            query=sql,
+            params=final_params,
         )
 
     def _query_office_contacts(self, analysis: QueryAnalysis) -> SqlQueryResult:
-        """
-        학과 사무실/연락처 질문 처리.
-
-        asset 테이블의 contact_info, email, phone, office, location 성격 데이터와
-        person 테이블의 email/phone/office 정보를 함께 조회합니다.
-        """
-        asset_table = "asset"
-        person_table = "person"
-
         rows: list[dict[str, Any]] = []
         warnings: list[str] = []
 
         with self._connect() as conn:
-            has_department = self._table_exists(conn, "department")
-            has_asset = self._table_exists(conn, asset_table)
-            has_person = self._table_exists(conn, person_table)
+            # 1. department_offices
+            if self._table_exists(conn, "department_offices"):
+                dept_names = self._dept_name_keywords(analysis)
 
-            if not has_asset and not has_person:
-                return SqlQueryResult(
-                    table_name="asset/person",
-                    rows=[],
-                    columns=[],
-                    conditions=analysis.sql_conditions,
-                    message="연락처 조회에 필요한 테이블을 찾을 수 없습니다.",
-                    warnings=[
-                        "asset 또는 person 테이블이 MySQL DB에 생성되어 있는지 확인하세요.",
-                    ],
+                office_where_parts = []
+                office_params: list[Any] = []
+
+                for name in dept_names:
+                    office_where_parts.append("program_name LIKE %s")
+                    office_params.append(f"%{name}%")
+
+                if office_where_parts:
+                    office_where = " OR ".join(office_where_parts)
+                else:
+                    office_where = "1=1"
+
+                sql_office = f"""
+                SELECT
+                    'department_offices' AS source_table,
+                    NULL AS dept,
+                    program_name AS dept_name,
+                    phone,
+                    website,
+                    building_location,
+                    NULL AS email,
+                    NULL AS office,
+                    source_page AS source_url,
+                    source
+                FROM department_offices
+                WHERE {office_where}
+                LIMIT %s
+                """
+                rows.extend(
+                    self._fetch_all(
+                        conn,
+                        sql_office,
+                        tuple(office_params + [self._limit()]),
+                    )
                 )
+            else:
+                warnings.append("department_offices 테이블이 없습니다.")
 
-            if has_asset:
-                asset_columns = self._columns(conn, asset_table)
-                params: list[Any] = []
-
-                conditions = [self._dept_condition("a", analysis.department_code, params)]
-                contact_conditions = []
-
-                if "content_type" in asset_columns:
-                    contact_conditions.append("a.content_type = 'contact_info'")
-
-                if "asset_type" in asset_columns:
-                    contact_conditions.append(
-                        "("
-                        "a.asset_type IN ('phone', 'email', 'contact', 'location', 'office') "
-                        "OR a.asset_type LIKE '%%phone%%' "
-                        "OR a.asset_type LIKE '%%email%%' "
-                        "OR a.asset_type LIKE '%%contact%%' "
-                        "OR a.asset_type LIKE '%%office%%' "
-                        "OR a.asset_type LIKE '%%location%%'"
-                        ")"
+            # 2. asset contact_info
+            if self._table_exists(conn, "asset"):
+                where_clause, params = self._dept_where_clause(analysis, alias="a")
+                sql_asset = f"""
+                SELECT
+                    'asset' AS source_table,
+                    a.dept,
+                    d.dept_name,
+                    NULL AS phone,
+                    a.url AS website,
+                    NULL AS building_location,
+                    NULL AS email,
+                    NULL AS office,
+                    a.source_url,
+                    a.text AS contact_text,
+                    a.content_type,
+                    a.topic
+                FROM asset AS a
+                LEFT JOIN department AS d
+                  ON d.dept = a.dept
+                WHERE {where_clause}
+                  AND (
+                        a.content_type IN ('contact_info', 'link')
+                        OR a.text LIKE '%연락%'
+                        OR a.text LIKE '%전화%'
+                        OR a.text LIKE '%문의%'
+                        OR a.text LIKE '%사무실%'
+                        OR a.text LIKE '%행정%'
+                  )
+                LIMIT %s
+                """
+                rows.extend(
+                    self._fetch_all(
+                        conn,
+                        sql_asset,
+                        tuple(params + [self._limit()]),
                     )
+                )
+            else:
+                warnings.append("asset 테이블이 없습니다.")
 
-                if "topic" in asset_columns:
-                    contact_conditions.append(
-                        "("
-                        "a.topic LIKE '%%Contact%%' "
-                        "OR a.topic LIKE '%%연락%%' "
-                        "OR a.topic LIKE '%%사무실%%' "
-                        "OR a.topic LIKE '%%전화%%' "
-                        ")"
+            # 3. person 연락처
+            if self._table_exists(conn, "person"):
+                where_clause, params = self._dept_where_clause(analysis, alias="p")
+                sql_person = f"""
+                SELECT
+                    'person' AS source_table,
+                    p.dept,
+                    d.dept_name,
+                    p.phone,
+                    p.homepage AS website,
+                    NULL AS building_location,
+                    p.email,
+                    p.office,
+                    p.source_url,
+                    p.name,
+                    p.role,
+                    p.role_normalized
+                FROM person AS p
+                LEFT JOIN department AS d
+                  ON d.dept = p.dept
+                WHERE {where_clause}
+                  AND (
+                        p.email IS NOT NULL AND p.email <> ''
+                        OR p.phone IS NOT NULL AND p.phone <> ''
+                        OR p.office IS NOT NULL AND p.office <> ''
+                        OR p.homepage IS NOT NULL AND p.homepage <> ''
+                  )
+                LIMIT %s
+                """
+                rows.extend(
+                    self._fetch_all(
+                        conn,
+                        sql_person,
+                        tuple(params + [self._limit()]),
                     )
+                )
+            else:
+                warnings.append("person 테이블이 없습니다.")
 
-                if "text" in asset_columns:
-                    contact_conditions.append(
-                        "("
-                        "a.text LIKE '%%전화%%' "
-                        "OR a.text LIKE '%%연락처%%' "
-                        "OR a.text LIKE '%%사무실%%' "
-                        "OR a.text LIKE '%%행정실%%' "
-                        "OR a.text LIKE '%%위치%%' "
-                        "OR a.text LIKE '%%office%%' "
-                        "OR a.text LIKE '%%contact%%' "
-                        "OR a.text LIKE '%%phone%%'"
-                        ")"
-                    )
-
-                if contact_conditions:
-                    conditions.append("(" + " OR ".join(contact_conditions) + ")")
-
-                where_clause = " AND ".join(conditions)
-
-                if has_department and "dept" in asset_columns:
-                    sql = f"""
-                    SELECT
-                        'asset' AS result_source,
-                        a.dept,
-                        d.dept_name,
-                        a.category,
-                        a.topic,
-                        a.content_type,
-                        a.asset_type,
-                        a.text AS contact_text,
-                        a.url,
-                        a.source_url
-                    FROM asset AS a
-                    LEFT JOIN department AS d
-                        ON d.dept = a.dept
-                    WHERE {where_clause}
-                    ORDER BY
-                        a.dept,
-                        a.topic
-                    LIMIT %s
-                    """
-                else:
-                    sql = f"""
-                    SELECT
-                        'asset' AS result_source,
-                        a.*
-                    FROM asset AS a
-                    WHERE {where_clause}
-                    LIMIT %s
-                    """
-
-                params.append(self._limit())
-                rows.extend(self._fetch_all(conn, sql, tuple(params)))
-
-            if has_person and analysis.department_code and not rows:
-                person_columns = self._columns(conn, person_table)
-                params = []
-
-                conditions = [self._dept_condition("p", analysis.department_code, params)]
-                person_contact_conditions = []
-
-                if "email" in person_columns:
-                    person_contact_conditions.append("(p.email IS NOT NULL AND p.email <> '')")
-
-                if "phone" in person_columns:
-                    person_contact_conditions.append("(p.phone IS NOT NULL AND p.phone <> '')")
-
-                if "office" in person_columns:
-                    person_contact_conditions.append("(p.office IS NOT NULL AND p.office <> '')")
-
-                if person_contact_conditions:
-                    conditions.append("(" + " OR ".join(person_contact_conditions) + ")")
-                else:
-                    warnings.append(
-                        "person 테이블에 email/phone/office 컬럼이 없어 person 연락처 조회를 제한했습니다."
-                    )
-
-                where_clause = " AND ".join(conditions)
-
-                if has_department and "dept" in person_columns:
-                    sql = f"""
-                    SELECT
-                        'person' AS result_source,
-                        p.record_id,
-                        p.dept,
-                        d.dept_name,
-                        p.name,
-                        p.role,
-                        p.role_normalized,
-                        p.email,
-                        p.phone,
-                        p.office,
-                        p.homepage
-                    FROM person AS p
-                    LEFT JOIN department AS d
-                        ON d.dept = p.dept
-                    WHERE {where_clause}
-                    ORDER BY
-                        p.dept,
-                        p.name
-                    LIMIT %s
-                    """
-                else:
-                    sql = f"""
-                    SELECT
-                        'person' AS result_source,
-                        p.*
-                    FROM person AS p
-                    WHERE {where_clause}
-                    LIMIT %s
-                    """
-
-                params.append(self._limit())
-                rows.extend(self._fetch_all(conn, sql, tuple(params)))
+        rows = self._dedupe_rows(rows)
 
         return self._result(
             table_name="office_contacts",
             rows=rows[: self._limit()],
             analysis=analysis,
-            message="학과 사무실/연락처 정보 조회가 완료되었습니다.",
+            message="연락처/학과사무실 조회가 완료되었습니다.",
             warnings=warnings,
         )
 
@@ -664,79 +683,47 @@ class SQLTool:
             if not self._table_exists(conn, table_name):
                 return self._missing_table_result(table_name, analysis)
 
-            admission_columns = self._columns(conn, table_name)
-            has_department = self._table_exists(conn, "department")
+            where_clause, params = self._dept_where_clause(analysis, alias="a")
 
-            params: list[Any] = []
-            where_clause = self._dept_condition("a", analysis.department_code, params)
+            sql = f"""
+            SELECT
+                a.admission_id,
+                a.record_id,
+                a.dept,
+                d.dept_name,
+                a.admission_type,
+                a.admission_type_norm,
+                a.page_title,
+                a.section_title,
+                a.title,
+                a.content,
+                a.schedule_date,
+                a.schedule_date_raw,
+                a.min_gpa,
+                a.source_url,
+                a.crawled_at,
+                a.source_sheet
+            FROM admission AS a
+            LEFT JOIN department AS d
+              ON d.dept = a.dept
+            WHERE {where_clause}
+            ORDER BY FIELD(a.dept, 'aic', 'ai_systems', 'ax', 'fx'),
+                     a.admission_type_norm,
+                     a.schedule_date,
+                     a.title
+            LIMIT %s
+            """
 
-            preferred_columns = [
-                "record_id",
-                "dept",
-                "admission_type",
-                "admission_type_norm",
-                "title",
-                "content",
-                "schedule_date",
-                "schedule_date_raw",
-                "min_gpa",
-                "source_url",
-                "url",
-                "missing_fields",
-            ]
-
-            select_columns = self._build_select_columns(
-                alias="a",
-                available_columns=admission_columns,
-                preferred_columns=preferred_columns,
-            )
-
-            order_clause = self._build_order_clause(
-                alias="a",
-                available_columns=admission_columns,
-                preferred_columns=["dept", "admission_type", "title"],
-            )
-
-            if has_department and "dept" in admission_columns:
-                select_clause = ",\n                    ".join(
-                    [
-                        *select_columns,
-                        "d.dept_name",
-                    ]
-                )
-
-                sql = f"""
-                SELECT
-                    {select_clause}
-                FROM admission AS a
-                LEFT JOIN department AS d
-                    ON d.dept = a.dept
-                WHERE {where_clause}
-                ORDER BY
-                    {order_clause}
-                LIMIT %s
-                """
-            else:
-                select_clause = ",\n                    ".join(select_columns)
-
-                sql = f"""
-                SELECT
-                    {select_clause}
-                FROM admission AS a
-                WHERE {where_clause}
-                ORDER BY
-                    {order_clause}
-                LIMIT %s
-                """
-
-            params.append(self._limit())
-            rows = self._fetch_all(conn, sql, tuple(params))
+            final_params = tuple(params + [self._limit()])
+            rows = self._fetch_all(conn, sql, final_params)
 
         return self._result(
             table_name=table_name,
             rows=rows,
             analysis=analysis,
             message="입학 정보 조회가 완료되었습니다.",
+            query=sql,
+            params=final_params,
         )
 
     def _query_events(self, analysis: QueryAnalysis) -> SqlQueryResult:
@@ -746,77 +733,41 @@ class SQLTool:
             if not self._table_exists(conn, table_name):
                 return self._missing_table_result(table_name, analysis)
 
-            event_columns = self._columns(conn, table_name)
-            has_department = self._table_exists(conn, "department")
+            where_clause, params = self._dept_where_clause(analysis, alias="e")
 
-            params: list[Any] = []
-            where_clause = self._dept_condition("e", analysis.department_code, params)
+            sql = f"""
+            SELECT
+                e.record_id,
+                e.dept,
+                d.dept_name,
+                e.event_type,
+                e.page_title,
+                e.title,
+                e.event_date,
+                e.summary,
+                e.content,
+                e.source_url,
+                e.crawled_at
+            FROM event AS e
+            LEFT JOIN department AS d
+              ON d.dept = e.dept
+            WHERE {where_clause}
+            ORDER BY FIELD(e.dept, 'aic', 'ai_systems', 'ax', 'fx'),
+                     e.event_date DESC,
+                     e.title
+            LIMIT %s
+            """
 
-            preferred_columns = [
-                "record_id",
-                "dept",
-                "event_type",
-                "title",
-                "event_date",
-                "location",
-                "content",
-                "source_url",
-                "url",
-                "missing_fields",
-            ]
-
-            select_columns = self._build_select_columns(
-                alias="e",
-                available_columns=event_columns,
-                preferred_columns=preferred_columns,
-            )
-
-            order_clause = self._build_order_clause(
-                alias="e",
-                available_columns=event_columns,
-                preferred_columns=["event_date", "title"],
-            )
-
-            if has_department and "dept" in event_columns:
-                select_clause = ",\n                    ".join(
-                    [
-                        *select_columns,
-                        "d.dept_name",
-                    ]
-                )
-
-                sql = f"""
-                SELECT
-                    {select_clause}
-                FROM event AS e
-                LEFT JOIN department AS d
-                    ON d.dept = e.dept
-                WHERE {where_clause}
-                ORDER BY
-                    {order_clause}
-                LIMIT %s
-                """
-            else:
-                select_clause = ",\n                    ".join(select_columns)
-
-                sql = f"""
-                SELECT
-                    {select_clause}
-                FROM event AS e
-                WHERE {where_clause}
-                ORDER BY
-                    {order_clause}
-                LIMIT %s
-                """
-
-            params.append(self._limit())
-            rows = self._fetch_all(conn, sql, tuple(params))
+            final_params = tuple(params + [self._limit()])
+            rows = self._fetch_all(conn, sql, final_params)
 
         return self._result(
             table_name=table_name,
             rows=rows,
             analysis=analysis,
-            message="행사 정보 조회가 완료되었습니다.",
+            message="행사/공지 조회가 완료되었습니다.",
+            query=sql,
+            params=final_params,
         )
 
     def _query_assets(self, analysis: QueryAnalysis) -> SqlQueryResult:
@@ -826,49 +777,45 @@ class SQLTool:
             if not self._table_exists(conn, table_name):
                 return self._missing_table_result(table_name, analysis)
 
-            asset_columns = self._columns(conn, table_name)
-            has_department = self._table_exists(conn, "department")
+            where_clause, params = self._dept_where_clause(analysis, alias="a")
 
-            params: list[Any] = []
-            where_clause = self._dept_condition("a", analysis.department_code, params)
+            sql = f"""
+            SELECT
+                a.asset_id,
+                a.record_id,
+                a.dept,
+                d.dept_name,
+                a.category,
+                a.topic,
+                a.priority,
+                a.content_type,
+                a.asset_type,
+                a.text,
+                a.url,
+                a.filename,
+                a.source_url,
+                a.crawled_at,
+                a.is_vector_candidate
+            FROM asset AS a
+            LEFT JOIN department AS d
+              ON d.dept = a.dept
+            WHERE {where_clause}
+            ORDER BY FIELD(a.dept, 'aic', 'ai_systems', 'ax', 'fx'),
+                     a.content_type,
+                     a.topic
+            LIMIT %s
+            """
 
-            order_clause = self._build_order_clause(
-                alias="a",
-                available_columns=asset_columns,
-                preferred_columns=["dept", "asset_type", "topic"],
-            )
-
-            if has_department and "dept" in asset_columns:
-                sql = f"""
-                SELECT
-                    a.*,
-                    d.dept_name
-                FROM asset AS a
-                LEFT JOIN department AS d
-                    ON d.dept = a.dept
-                WHERE {where_clause}
-                ORDER BY
-                    {order_clause}
-                LIMIT %s
-                """
-            else:
-                sql = f"""
-                SELECT *
-                FROM asset AS a
-                WHERE {where_clause}
-                ORDER BY
-                    {order_clause}
-                LIMIT %s
-                """
-
-            params.append(self._limit())
-            rows = self._fetch_all(conn, sql, tuple(params))
+            final_params = tuple(params + [self._limit()])
+            rows = self._fetch_all(conn, sql, final_params)
 
         return self._result(
             table_name=table_name,
             rows=rows,
             analysis=analysis,
-            message="자료/링크 조회가 완료되었습니다.",
+            message="웹 자산/링크 조회가 완료되었습니다.",
+            query=sql,
+            params=final_params,
         )
 
     def _query_departments(self, analysis: QueryAnalysis) -> SqlQueryResult:
@@ -878,34 +825,23 @@ class SQLTool:
             if not self._table_exists(conn, table_name):
                 return self._missing_table_result(table_name, analysis)
 
-            department_columns = self._columns(conn, table_name)
-
-            params: list[Any] = []
-            where_clause = self._dept_condition("d", analysis.department_code, params)
-
-            order_clause = self._build_order_clause(
-                alias="d",
-                available_columns=department_columns,
-                preferred_columns=["dept", "dept_name"],
-            )
-
-            sql = f"""
-            SELECT *
-            FROM department AS d
-            WHERE {where_clause}
-            ORDER BY
-                {order_clause}
-            LIMIT %s
+            sql = """
+            SELECT
+                dept,
+                dept_name
+            FROM department
+            WHERE dept IN ('aic', 'ai_systems', 'ax', 'fx')
+            ORDER BY FIELD(dept, 'aic', 'ai_systems', 'ax', 'fx')
             """
-
-            params.append(self._limit())
-            rows = self._fetch_all(conn, sql, tuple(params))
+            rows = self._fetch_all(conn, sql)
 
         return self._result(
             table_name=table_name,
             rows=rows,
             analysis=analysis,
-            message="학과 정보 조회가 완료되었습니다.",
+            message="학과 목록 조회가 완료되었습니다.",
+            query=sql,
+            params=(),
         )
 
     def _query_kaist_profile(self, analysis: QueryAnalysis) -> SqlQueryResult:
@@ -915,38 +851,26 @@ class SQLTool:
             if not self._table_exists(conn, table_name):
                 return self._missing_table_result(table_name, analysis)
 
-            rows = self._fetch_all(
-                conn=conn,
-                sql=f"""
-                SELECT *
-                FROM {table_name}
-                LIMIT %s
-                """,
-                params=(self._limit(),),
-            )
-
-        rows = self._filter_rows_by_alias(
-            rows=rows,
-            key_column="item",
-            question=analysis.normalized_question,
-            aliases={
-                "학교명": ["학교명", "이름", "한국과학기술원"],
-                "영문약자": ["영문약자", "약자"],
-                "영문명": ["영문명", "영어 이름", "영어명", "korea advanced"],
-                "창립일": ["창립일", "설립일", "개교일", "언제 설립"],
-                "색상": ["색상", "상징색", "컬러"],
-                "주소": ["주소", "위치", "어디"],
-                "대표 번호": ["대표 번호", "대표번호", "전화", "전화번호"],
-                "대표 팩스번호": ["팩스", "팩스번호"],
-                "설립이념": ["설립이념", "이념", "역사", "설립 배경"],
-            },
-        )
+            sql = """
+            SELECT
+                item,
+                content,
+                note,
+                source_url,
+                source
+            FROM kaist_profile
+            LIMIT %s
+            """
+            params = (self._limit(),)
+            rows = self._fetch_all(conn, sql, params)
 
         return self._result(
             table_name=table_name,
             rows=rows,
             analysis=analysis,
             message="KAIST 기본 정보 조회가 완료되었습니다.",
+            query=sql,
+            params=params,
         )
 
     def _query_kaist_statistics(self, analysis: QueryAnalysis) -> SqlQueryResult:
@@ -956,26 +880,27 @@ class SQLTool:
             if not self._table_exists(conn, table_name):
                 return self._missing_table_result(table_name, analysis)
 
-            rows = self._fetch_all(
-                conn=conn,
-                sql=f"""
-                SELECT *
-                FROM {table_name}
-                LIMIT %s
-                """,
-                params=(self._limit(),),
-            )
-
-        rows = self._filter_kaist_statistics_rows(
-            rows=rows,
-            question=analysis.normalized_question,
-        )
+            sql = """
+            SELECT
+                stat_group,
+                level,
+                value_raw,
+                value_number,
+                note,
+                source
+            FROM kaist_statistics
+            LIMIT %s
+            """
+            params = (self._limit(),)
+            rows = self._fetch_all(conn, sql, params)
 
         return self._result(
             table_name=table_name,
             rows=rows,
             analysis=analysis,
             message="KAIST 통계 정보 조회가 완료되었습니다.",
+            query=sql,
+            params=params,
         )
 
     def _query_kaist_links(self, analysis: QueryAnalysis) -> SqlQueryResult:
@@ -985,148 +910,43 @@ class SQLTool:
             if not self._table_exists(conn, table_name):
                 return self._missing_table_result(table_name, analysis)
 
-            rows = self._fetch_all(
-                conn=conn,
-                sql=f"""
-                SELECT *
-                FROM {table_name}
-                LIMIT %s
-                """,
-                params=(self._limit(),),
-            )
-
-        rows = self._filter_rows_by_alias(
-            rows=rows,
-            key_column="link_name",
-            question=analysis.normalized_question,
-            aliases={
-                "URL": ["공식 홈페이지", "홈페이지", "url", "웹사이트"],
-                "캠퍼스맵": ["캠퍼스맵", "캠퍼스 맵", "지도"],
-                "셔틀버스 실시간 위치 확인": ["셔틀버스", "셔틀", "버스"],
-                "도서관": ["도서관", "library"],
-                "문화행사": ["문화행사", "행사"],
-                "홍보동영상(2분, 2025)": ["홍보동영상", "동영상", "영상"],
-                "학사일정": ["학사일정", "일정", "캘린더"],
-            },
-        )
+            sql = """
+            SELECT
+                link_name,
+                url,
+                note,
+                source
+            FROM kaist_links
+            LIMIT %s
+            """
+            params = (self._limit(),)
+            rows = self._fetch_all(conn, sql, params)
 
         return self._result(
             table_name=table_name,
             rows=rows,
             analysis=analysis,
             message="KAIST 공식 링크 조회가 완료되었습니다.",
+            query=sql,
+            params=params,
         )
 
-    def _filter_rows_by_alias(
-        self,
-        rows: list[dict[str, Any]],
-        key_column: str,
-        question: str,
-        aliases: dict[str, list[str]],
-    ) -> list[dict[str, Any]]:
-        matched_keys = [
-            key
-            for key, keywords in aliases.items()
-            if any(keyword.lower() in question.lower() for keyword in keywords)
-        ]
-
-        if not matched_keys:
-            return rows
-
-        return [
-            row
-            for row in rows
-            if str(row.get(key_column, "")) in matched_keys
-        ]
-
-    def _filter_kaist_statistics_rows(
-        self,
-        rows: list[dict[str, Any]],
-        question: str,
-    ) -> list[dict[str, Any]]:
-        group_aliases = {
-            "졸업생": ["졸업생", "졸업자", "동문"],
-            "재학생": ["재학생", "학생 수", "학생수", "재학"],
-            "교직원": ["교직원", "교수", "직원"],
-        }
-        level_aliases = {
-            "전체": ["전체", "총", "모두"],
-            "학사": ["학사", "학부"],
-            "석사": ["석사"],
-            "석박통합": ["석박통합", "석박사통합"],
-            "박사": ["박사"],
-            "교수": ["교수"],
-            "직원": ["직원"],
-        }
-
-        groups = self._matched_alias_keys(question, group_aliases)
-        levels = self._matched_alias_keys(question, level_aliases)
-        filtered_rows = rows
-
-        if groups:
-            filtered_rows = [
-                row
-                for row in filtered_rows
-                if str(row.get("stat_group", "")) in groups
-            ]
-
-        if levels:
-            filtered_rows = [
-                row
-                for row in filtered_rows
-                if str(row.get("level", "")) in levels
-            ]
-
-        if not filtered_rows and groups:
-            filtered_rows = [
-                row
-                for row in rows
-                if str(row.get("stat_group", "")) in groups
-            ]
-
-        return filtered_rows
-
-    def _matched_alias_keys(
-        self,
-        question: str,
-        aliases: dict[str, list[str]],
-    ) -> list[str]:
-        normalized_question = "".join(question.lower().split())
-
-        return [
-            key
-            for key, keywords in aliases.items()
-            if any(
-                keyword.lower() in question.lower()
-                or "".join(keyword.lower().split()) in normalized_question
-                for keyword in keywords
-            )
-        ]
-
     def _query_department_homepages(self, analysis: QueryAnalysis) -> SqlQueryResult:
-        """
-        학과별 대표 홈페이지 URL 조회.
-
-        사용 예:
-        - AI대학 학과별 홈페이지 URL을 정리해줘.
-        - AI컴퓨팅학과 홈페이지 알려줘.
-        - AX학과 사이트 알려줘.
-        """
         table_name = "department_homepage"
 
         with self._connect() as conn:
             if not self._table_exists(conn, table_name):
                 return self._missing_table_result(table_name, analysis)
 
-            params: list[Any] = []
+            dept_codes = self._target_dept_codes(analysis)
 
-            if analysis.department_code:
+            if len(dept_codes) == 1:
                 where_clause = "h.dept = %s"
-                params.append(analysis.department_code)
+                params = [dept_codes[0]]
             else:
-                placeholders = ", ".join(["%s"] * len(SUPPORTED_AI_COLLEGE_DEPT_CODES))
+                placeholders = ", ".join(["%s"] * len(dept_codes))
                 where_clause = f"h.dept IN ({placeholders})"
-                params.extend(SUPPORTED_AI_COLLEGE_DEPT_CODES)
+                params = list(dept_codes)
 
             sql = f"""
             SELECT
@@ -1143,39 +963,26 @@ class SQLTool:
             LIMIT %s
             """
 
-            params.append(self._limit())
-            rows = self._fetch_all(conn, sql, tuple(params))
+            final_params = tuple(params + [self._limit()])
+            rows = self._fetch_all(conn, sql, final_params)
 
         return self._result(
             table_name=table_name,
             rows=rows,
             analysis=analysis,
             message="학과별 홈페이지 조회가 완료되었습니다.",
+            query=sql,
+            params=final_params,
         )
 
     def _query_requirements(self, analysis: QueryAnalysis) -> SqlQueryResult:
-        """
-        학과별 졸업/수료/논문/이수 요건 조회.
-
-        현재 데이터가 비어 있을 수 있다.
-        이 경우 빈 결과를 반환하고, answer_generator에서
-        '제공된 자료에서 확인할 수 없습니다'로 답변하게 한다.
-        """
         table_name = "department_requirement"
 
         with self._connect() as conn:
             if not self._table_exists(conn, table_name):
                 return self._missing_table_result(table_name, analysis)
 
-            params: list[Any] = []
-
-            if analysis.department_code:
-                where_clause = "r.dept = %s"
-                params.append(analysis.department_code)
-            else:
-                placeholders = ", ".join(["%s"] * len(SUPPORTED_AI_COLLEGE_DEPT_CODES))
-                where_clause = f"r.dept IN ({placeholders})"
-                params.extend(SUPPORTED_AI_COLLEGE_DEPT_CODES)
+            where_clause, params = self._dept_where_clause(analysis, alias="r")
 
             sql = f"""
             SELECT
@@ -1191,149 +998,92 @@ class SQLTool:
                 r.note
             FROM department_requirement AS r
             WHERE {where_clause}
-            ORDER BY
-                FIELD(r.dept, 'aic', 'ai_systems', 'ax', 'fx'),
-                r.program,
-                r.requirement_type,
-                r.requirement_name
+            ORDER BY FIELD(r.dept, 'aic', 'ai_systems', 'ax', 'fx'),
+                     r.program,
+                     r.requirement_type,
+                     r.requirement_name
             LIMIT %s
             """
 
-            params.append(self._limit())
-            rows = self._fetch_all(conn, sql, tuple(params))
+            final_params = tuple(params + [self._limit()])
+            rows = self._fetch_all(conn, sql, final_params)
 
         return self._result(
             table_name=table_name,
             rows=rows,
             analysis=analysis,
             message="학과별 요건 조회가 완료되었습니다.",
+            query=sql,
+            params=final_params,
         )
 
-    # ============================================================
-    # Result helpers
-    # ============================================================
+    # ------------------------------------------------------------
+    # utility
+    # ------------------------------------------------------------
 
-    def _result(
-        self,
-        table_name: str,
-        rows: list[dict[str, Any]],
-        analysis: QueryAnalysis,
-        message: str,
-        warnings: list[str] | None = None,
-    ) -> SqlQueryResult:
-        columns = list(rows[0].keys()) if rows else []
-        final_warnings = list(warnings or [])
+    def _dedupe_rows(self, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        deduped: list[dict[str, Any]] = []
+        seen: set[str] = set()
 
-        if not rows and analysis.department_code:
-            final_warnings.append(
-                f"{table_name} 테이블에서 dept='{analysis.department_code}' 조건에 맞는 행이 없습니다."
+        for row in rows:
+            key = "|".join(
+                str(row.get(k, ""))
+                for k in [
+                    "source_table",
+                    "dept",
+                    "dept_name",
+                    "phone",
+                    "website",
+                    "email",
+                    "office",
+                    "source_url",
+                    "contact_text",
+                    "name",
+                ]
             )
 
-        return SqlQueryResult(
-            table_name=table_name,
-            rows=rows,
-            columns=columns,
-            conditions=analysis.sql_conditions,
-            message=message,
-            warnings=final_warnings,
-        )
+            if key in seen:
+                continue
 
-    def _connection_error_result(
-        self,
-        analysis: QueryAnalysis,
-        error: Exception,
-    ) -> SqlQueryResult:
-        return SqlQueryResult(
-            table_name=self._table_name_from_analysis(analysis),
-            rows=[],
-            columns=[],
-            conditions=analysis.sql_conditions,
-            message="MySQL 연결 또는 조회 중 오류가 발생했습니다.",
-            warnings=[
-                f"{type(error).__name__}: {error}",
-                f"host={self.config.host}",
-                f"port={self.config.port}",
-                f"user={self.config.user}",
-                f"database={self.config.database}",
-                "MySQL 서버 실행 여부, .env 접속 정보, DB 생성 여부를 확인하세요.",
-            ],
-        )
+            seen.add(key)
+            deduped.append(row)
 
-    def _missing_table_result(
-        self,
-        table_name: str,
-        analysis: QueryAnalysis,
-    ) -> SqlQueryResult:
-        return SqlQueryResult(
-            table_name=table_name,
-            rows=[],
-            columns=[],
-            conditions=analysis.sql_conditions,
-            message=f"MySQL 테이블을 찾을 수 없습니다: {table_name}",
-            warnings=[
-                f"`{self.config.database}` 데이터베이스에 `{table_name}` 테이블이 생성되어 있는지 확인하세요.",
-                "01_schema.sql 실행 여부를 확인하세요.",
-            ],
-        )
-
-    def _unsupported_task_result(
-        self,
-        analysis: QueryAnalysis,
-    ) -> SqlQueryResult:
-        return SqlQueryResult(
-            table_name=self._table_name_from_analysis(analysis),
-            rows=[],
-            columns=[],
-            conditions=analysis.sql_conditions,
-            message="지원하지 않는 SQL task입니다.",
-            warnings=[
-                f"sql_task_hint를 확인하세요: {analysis.sql_task_hint}",
-            ],
-        )
-
-    def _table_name_from_analysis(
-        self,
-        analysis: QueryAnalysis,
-    ) -> str:
-        if not analysis.sql_table_hint:
-            return "unknown"
-
-        return self.TABLE_HINT_MAP.get(
-            analysis.sql_table_hint,
-            analysis.sql_table_hint,
-        )
+        return deduped
 
 
-def run_examples() -> None:
+# ============================================================
+# 4. 수동 테스트
+# ============================================================
+
+if __name__ == "__main__":
     from src.rag.query_analyzer import QuestionAnalyzer
 
     analyzer = QuestionAnalyzer()
-    sql_tool = SQLTool()
+    tool = SQLTool()
 
     questions = [
-        "AI시스템학과 교과목 알려줘",
-        "AX학과 교수진 이메일 목록 보여줘",
-        "KAIST 학과 사무실 전화번호 알려줘",
-        "자료 다운로드 링크 알려줘",
-        "AI컴퓨팅학과 입학 정보 알려줘",
-        "AI컴퓨팅학과 학과설명회 일정 알려줘",
+        "AI대학 학과별 홈페이지 URL을 정리해줘.",
+        "AI컴퓨팅학과 교수진을 알려줘.",
+        "AI컴퓨팅학과의 교육과정을 알려줘.",
+        "KAIST 대표 번호 알려줘.",
+        "AI컴퓨팅학과의 졸업 요건이 문서에 나와 있어?",
+        "AI컴퓨팅학과의 연락처가 문서에 나와 있어?",
     ]
 
     for question in questions:
         analysis = analyzer.analyze(question)
-        result = sql_tool.query(analysis)
+        result = tool.query(analysis)
 
         print("=" * 100)
-        print("질문:", question)
+        print("Q:", question)
         print("route:", analysis.route)
-        print("task:", analysis.sql_task_hint)
+        print("intent:", analysis.intent)
+        print("sql_task:", analysis.sql_task_hint)
         print("table:", result.table_name)
+        print("rows:", len(result.rows))
+        print("columns:", result.columns[:10])
         print("message:", result.message)
         print("warnings:", result.warnings)
-        print("row_count:", len(result.rows))
-        print("columns:", result.columns)
-        print("rows_preview:", result.rows[:3])
 
-
-if __name__ == "__main__":
-    run_examples()
+        if result.rows:
+            print("first_row:", result.rows[0])

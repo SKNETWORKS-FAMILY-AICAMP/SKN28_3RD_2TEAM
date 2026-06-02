@@ -105,15 +105,9 @@ class ContextBuilder:
         vector_result: Any | None = None,
         **kwargs: Any,
     ) -> BuiltContext:
-        """
-        RagPipeline에서 호출하는 기본 context 생성 함수.
-
-        호출 호환성:
-        - build(question=..., analysis=..., sql_result=..., vector_result=...)
-        - build(analysis=..., sql_result=..., vector_result=...)
-        """
         if question is None:
             question = ""
+
             if analysis is not None:
                 question = analysis.original_question
 
@@ -323,7 +317,6 @@ class ContextBuilder:
 
     def _get_vector_page_content(self, item: Any) -> str:
         document = self._get_vector_document(item)
-
         content = getattr(document, "page_content", None)
 
         if content is not None:
@@ -367,7 +360,6 @@ class ContextBuilder:
         if len(rows) <= self.config.max_sql_rows:
             return rows
 
-        # 특정 학과 질문이면 해당 학과 우선
         if analysis.department_code:
             dept_rows = [
                 row for row in rows
@@ -377,7 +369,6 @@ class ContextBuilder:
             if dept_rows:
                 return dept_rows[: self.config.max_sql_rows]
 
-        # 전체/비교/학과별 질문은 학과별 균등 샘플링
         return self._balanced_sample_rows_by_department(
             rows=rows,
             max_total_rows=self.config.max_sql_rows,
@@ -470,7 +461,6 @@ class ContextBuilder:
 
                 break
 
-        # 부족하면 상위 결과로 보충
         for item in vector_items:
             item_id = self._make_vector_item_id(item)
 
@@ -679,6 +669,7 @@ class ContextBuilder:
 
     def _format_sql_row(self, row: dict[str, Any]) -> str:
         priority_keys = [
+            "source_table",
             "dept",
             "dept_name",
             "name",
@@ -690,6 +681,9 @@ class ContextBuilder:
             "phone",
             "office",
             "homepage",
+            "program_name",
+            "website",
+            "building_location",
             "course_code",
             "course_name",
             "course_type",
@@ -707,19 +701,16 @@ class ContextBuilder:
             "admission_url",
             "faculty_url",
             "curriculum_url",
-            "program_name",
-            "website",
-            "building_location",
             "item",
             "value_raw",
             "value_number",
             "url",
             "source_url",
             "source",
+            "contact_text",
         ]
 
         lines: list[str] = []
-
         used_keys: set[str] = set()
 
         for key in priority_keys:
@@ -731,7 +722,6 @@ class ContextBuilder:
             lines.append(f"- {key}: {value}")
             used_keys.add(key)
 
-        # priority에 없는 주요 값도 일부 포함
         for key, value in row.items():
             if key in used_keys:
                 continue
