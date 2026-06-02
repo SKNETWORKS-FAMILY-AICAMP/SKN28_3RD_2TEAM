@@ -1,579 +1,132 @@
 from __future__ import annotations
 
+import os
 import sys
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from time import perf_counter
-from typing import TYPE_CHECKING, Any, Callable, Protocol
+from typing import Any, Callable
+
+try:
+    from dotenv import load_dotenv
+except ModuleNotFoundError:
+    def load_dotenv(*args: Any, **kwargs: Any) -> bool:
+        return False
+
 
 CURRENT_FILE = Path(__file__).resolve()
-PROJECT_ROOT_FROM_FILE = CURRENT_FILE.parents[2]
+PROJECT_ROOT = CURRENT_FILE.parents[2]
 
-if str(PROJECT_ROOT_FROM_FILE) not in sys.path:
-    sys.path.insert(0, str(PROJECT_ROOT_FROM_FILE))
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.rag.query_analyzer import QueryAnalysis, QuestionAnalyzer
+from src.rag.query_analyzer import QuestionAnalyzer, QueryAnalysis
+from src.rag.vector_retriever import VectorRetriever, VectorRetrievalResult
 
-if TYPE_CHECKING:
-    from src.rag.answer_generator import (
-        AnswerGenerator,
-        AnswerGeneratorConfig,
-        GeneratedAnswer,
-    )
-    from src.rag.context_builder import (
-        BuiltContext,
-        ContextBuilder,
-        ContextBuilderConfig,
-        SqlQueryResult,
-    )
-    from src.rag.vector_retriever import (
-        VectorRetrievalResult,
-        VectorRetriever,
-        VectorRetrieverConfig,
-    )
+try:
+    from src.rag.sql_tool import SQLTool
+except Exception:
+    SQLTool = None  # type: ignore
+
+try:
+    from src.rag.context_builder import ContextBuilder
+except Exception:
+    ContextBuilder = None  # type: ignore
+
+try:
+    from src.rag.answer_generator import AnswerGenerator
+except Exception:
+    AnswerGenerator = None  # type: ignore
 
 
-SqlSearchFn = Callable[[QueryAnalysis], "SqlQueryResult"]
-TokenCallback = Callable[[str], None]
-StatusCallback = Callable[[str], None]
-
-
-class SqlRetrieverLike(Protocol):
-    def search(self, analysis: QueryAnalysis) -> SqlQueryResult:
-        ...
-
-
-@dataclass
-class RagPipelineConfig:
-    use_vector_when_sql_unavailable: bool = True
-    use_vector_when_sql_empty: bool = True
-    include_debug_context: bool = False
-    raise_search_errors: bool = False
-    raise_generation_errors: bool = False
-    preload_vector_retriever: bool = False
-    preload_answer_generator: bool = False
-    empty_answer_message: str = (
-        "제공된 자료에서 질문에 대한 충분한 근거를 찾을 수 없습니다. "
-        "학과명이나 알고 싶은 정보 유형을 더 구체적으로 입력해주세요.\n\n"
-        "정확하고 최신 정보는 KAIST 공식 홈페이지 또는 입학처에서 확인하는 것을 권장합니다.\n"
-        "- KAIST 공식 홈페이지: https://www.kaist.ac.kr/kr/\n"
-        "- KAIST 입학처: https://admission.kaist.ac.kr/home"
-    )
-
-
-@dataclass
-class RagSearchResult:
-    analysis: QueryAnalysis
-    vector_result: VectorRetrievalResult | None = None
-    sql_result: SqlQueryResult | None = None
-    warnings: list[str] = field(default_factory=list)
-
-    @property
-    def has_vector_results(self) -> bool:
-        return bool(self.vector_result and self.vector_result.results)
-
-    @property
-    def has_sql_results(self) -> bool:
-        return bool(self.sql_result and not self.sql_result.is_empty())
-
-    @property
-    def has_results(self) -> bool:
-        return self.has_vector_results or self.has_sql_results
-
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "analysis": self.analysis.to_dict(),
-            "vector_result": (
-                self.vector_result.to_debug_dict()
-                if self.vector_result
-                else None
-            ),
-            "sql_result": asdict(self.sql_result) if self.sql_result else None,
-            "warnings": self.warnings,
-        }
-
+# ============================================================
+# 1. 결과 dataclass
+# ============================================================
 
 @dataclass
 class RagPipelineResult:
     question: str
+    answer: str
+
     analysis: QueryAnalysis
-    built_context: BuiltContext
-    generated_answer: GeneratedAnswer
-    vector_result: VectorRetrievalResult | None = None
-    sql_result: SqlQueryResult | None = None
+    sources: list[dict[str, Any]] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
 
-    @property
-    def answer(self) -> str:
-        return self.generated_answer.answer
+    sql_result: Any | None = None
+    vector_result: VectorRetrievalResult | None = None
+    context: Any | None = None
 
-    @property
-    def route(self) -> str:
-        return self.analysis.route
+    debug_context: dict[str, Any] | None = None
 
     @property
     def intent(self) -> str:
         return self.analysis.intent
 
     @property
+    def route(self) -> str:
+        return self.analysis.route
+
+    @property
     def department_code(self) -> str | None:
         return self.analysis.department_code
 
     @property
-    def needs_clarification(self) -> bool:
-        return self.analysis.route == "clarify"
+    def department_codes(self) -> list[str]:
+        return self.analysis.department_codes
 
     @property
-    def sources(self) -> list[dict[str, Any]]:
-        return [
-            source.to_dict()
-            for source in self.generated_answer.sources
-        ]
+    def needs_clarification(self) -> bool:
+        return self.analysis.route == "clarify" or bool(self.analysis.missing_fields)
 
-    def to_dict(self, include_debug_context: bool = False) -> dict[str, Any]:
-        result = {
+    def to_dict(self) -> dict[str, Any]:
+        return {
             "question": self.question,
-            "answer": self.generated_answer.answer,
-            "analysis": self.analysis.to_dict(),
-            "route": self.analysis.route,
-            "intent": self.analysis.intent,
-            "department_code": self.analysis.department_code,
+            "answer": self.answer,
+            "intent": self.intent,
+            "route": self.route,
+            "department_code": self.department_code,
+            "department_codes": self.department_codes,
             "needs_clarification": self.needs_clarification,
             "sources": self.sources,
             "warnings": self.warnings,
+            "analysis": self.analysis.to_dict(),
+            "debug_context": self.debug_context,
         }
 
-        if include_debug_context:
-            result["built_context"] = self.built_context.to_dict()
-            result["vector_result"] = (
-                self.vector_result.to_debug_dict()
-                if self.vector_result
-                else None
-            )
-            result["sql_result"] = (
-                asdict(self.sql_result)
-                if self.sql_result
-                else None
-            )
 
-        return result
-
+# ============================================================
+# 2. Pipeline
+# ============================================================
 
 class RagPipeline:
     def __init__(
         self,
-        config: RagPipelineConfig | None = None,
-        analyzer: QuestionAnalyzer | None = None,
+        question_analyzer: QuestionAnalyzer | None = None,
+        sql_retriever: Any | None = None,
         vector_retriever: VectorRetriever | None = None,
-        vector_config: VectorRetrieverConfig | None = None,
-        sql_retriever: SqlSearchFn | SqlRetrieverLike | None = None,
-        context_builder: ContextBuilder | None = None,
-        context_config: ContextBuilderConfig | None = None,
-        answer_generator: AnswerGenerator | None = None,
-        answer_config: AnswerGeneratorConfig | None = None,
+        context_builder: Any | None = None,
+        answer_generator: Any | None = None,
+        include_debug_context: bool = False,
     ) -> None:
-        self.config = config or RagPipelineConfig()
-
-        self.analyzer = analyzer or QuestionAnalyzer()
-        self.vector_config = vector_config
+        self.question_analyzer = question_analyzer or QuestionAnalyzer()
         self.sql_retriever = sql_retriever
-        self.context_config = context_config
-        self.answer_config = answer_config
+        self.vector_retriever = vector_retriever
+        self.context_builder = context_builder
+        self.answer_generator = answer_generator
+        self.include_debug_context = include_debug_context
 
-        self._vector_retriever = vector_retriever
-        self._context_builder = context_builder
-        self._answer_generator = answer_generator
-        self.last_warm_up_result: dict[str, Any] | None = None
-
-        if (
-            self.config.preload_vector_retriever
-            or self.config.preload_answer_generator
-        ):
-            self.last_warm_up_result = self.warm_up(
-                include_vector_retriever=self.config.preload_vector_retriever,
-                include_answer_generator=self.config.preload_answer_generator,
-                include_context_builder=False,
-                raise_errors=(
-                    self.config.raise_search_errors
-                    or self.config.raise_generation_errors
-                ),
-            )
+    # ------------------------------------------------------------
+    # public API
+    # ------------------------------------------------------------
 
     def classify_question(
         self,
         question: str,
         previous_department_code: str | None = None,
     ) -> QueryAnalysis:
-        return self.analyzer.analyze(
+        return self.question_analyzer.analyze(
             question=question,
             previous_department_code=previous_department_code,
         )
-
-    def warm_up(
-        self,
-        include_vector_retriever: bool = True,
-        include_answer_generator: bool = False,
-        include_context_builder: bool = True,
-        sample_question: str | None = None,
-        previous_department_code: str | None = None,
-        raise_errors: bool = False,
-    ) -> dict[str, Any]:
-        result: dict[str, Any] = {
-            "ok": True,
-            "components": {},
-            "warnings": [],
-        }
-
-        def record_component(
-            name: str,
-            callback: Callable[[], Any],
-        ) -> Any:
-            started_at = perf_counter()
-
-            try:
-                value = callback()
-            except Exception as exc:
-                elapsed_seconds = round(perf_counter() - started_at, 3)
-                message = str(exc)
-
-                result["ok"] = False
-                result["components"][name] = {
-                    "ok": False,
-                    "elapsed_seconds": elapsed_seconds,
-                    "message": message,
-                }
-                result["warnings"].append(
-                    f"{name} warm-up 중 오류가 발생했습니다: {message}"
-                )
-
-                if raise_errors:
-                    raise
-
-                return None
-
-            elapsed_seconds = round(perf_counter() - started_at, 3)
-            result["components"][name] = {
-                "ok": True,
-                "elapsed_seconds": elapsed_seconds,
-            }
-
-            return value
-
-        vector_retriever = None
-
-        if include_vector_retriever or sample_question:
-            vector_retriever = record_component(
-                "vector_retriever",
-                self._get_vector_retriever,
-            )
-
-        if sample_question and vector_retriever is not None:
-            def run_sample_vector_search() -> Any:
-                return vector_retriever.retrieve(
-                    question=sample_question,
-                    previous_department_code=previous_department_code,
-                    force_vector_search=True,
-                )
-
-            sample_result = record_component(
-                "sample_vector_search",
-                run_sample_vector_search,
-            )
-
-            if sample_result is not None:
-                result["components"]["sample_vector_search"].update(
-                    {
-                        "status": sample_result.status,
-                        "result_count": len(sample_result.results),
-                    }
-                )
-
-        if include_answer_generator:
-            record_component(
-                "answer_generator",
-                self._get_answer_generator,
-            )
-
-        if include_context_builder:
-            record_component(
-                "context_builder",
-                self._get_context_builder,
-            )
-
-        self.last_warm_up_result = result
-        return result
-
-    def search(
-        self,
-        question: str,
-        analysis: QueryAnalysis | None = None,
-        previous_department_code: str | None = None,
-    ) -> RagSearchResult:
-        analysis = analysis or self.classify_question(
-            question=question,
-            previous_department_code=previous_department_code,
-        )
-
-        warnings: list[str] = []
-        sql_result: SqlQueryResult | None = None
-        vector_result: VectorRetrievalResult | None = None
-
-        if analysis.route == "clarify":
-            return RagSearchResult(
-                analysis=analysis,
-                warnings=warnings,
-            )
-
-        if analysis.needs_sql:
-            sql_result = self._search_sql(analysis)
-
-            if sql_result is None:
-                warnings.append(
-                    "SQL 검색기가 아직 연결되어 있지 않아 SQL 조회를 건너뛰었습니다."
-                )
-            elif sql_result.is_empty():
-                warnings.append(
-                    "SQL 조회 결과가 비어 있습니다."
-                )
-
-        should_search_vector = analysis.needs_vector
-        force_vector_search = False
-
-        sql_unavailable = analysis.needs_sql and sql_result is None
-        sql_empty = (
-            analysis.needs_sql
-            and sql_result is not None
-            and sql_result.is_empty()
-        )
-
-        if sql_unavailable and self.config.use_vector_when_sql_unavailable:
-            should_search_vector = True
-            force_vector_search = analysis.route == "sql"
-
-        if sql_empty and self.config.use_vector_when_sql_empty:
-            should_search_vector = True
-            force_vector_search = analysis.route == "sql"
-
-        if should_search_vector:
-            try:
-                vector_result = self._get_vector_retriever().retrieve(
-                    question=question,
-                    previous_department_code=analysis.department_code or previous_department_code,
-                    force_vector_search=force_vector_search,
-                )
-            except Exception as exc:
-                if self.config.raise_search_errors:
-                    raise
-
-                warnings.append(
-                    f"Vector 검색 중 오류가 발생했습니다: {exc}"
-                )
-
-        return RagSearchResult(
-            analysis=analysis,
-            vector_result=vector_result,
-            sql_result=sql_result,
-            warnings=warnings,
-        )
-
-    def build_context(
-        self,
-        analysis: QueryAnalysis,
-        vector_result: VectorRetrievalResult | None = None,
-        sql_result: SqlQueryResult | None = None,
-        warnings: list[str] | None = None,
-    ) -> BuiltContext:
-        built_context = self._get_context_builder().build(
-            analysis=analysis,
-            vector_result=vector_result,
-            sql_result=sql_result,
-        )
-
-        if warnings:
-            built_context.warnings = self._deduplicate_strings(
-                [*warnings, *built_context.warnings]
-            )
-
-        return built_context
-
-    def generate_answer(
-        self,
-        question: str,
-        built_context: BuiltContext,
-        analysis: QueryAnalysis,
-    ) -> GeneratedAnswer:
-        policy_decision = self._check_answer_policy(
-            question=question,
-            analysis=analysis,
-        )
-
-        if not policy_decision.allowed:
-            from src.rag.answer_generator import GeneratedAnswer
-
-            return GeneratedAnswer(
-                answer=policy_decision.message,
-                sources=[],
-                warnings=self._deduplicate_strings(
-                    [*built_context.warnings, policy_decision.reason]
-                ),
-                raw_context=built_context.context,
-            )
-
-        if analysis.route == "clarify":
-            from src.rag.answer_generator import GeneratedAnswer
-
-            return GeneratedAnswer(
-                answer=analysis.clarifying_message
-                or "질문을 조금 더 구체적으로 입력해주세요.",
-                sources=built_context.sources,
-                warnings=built_context.warnings,
-                raw_context=built_context.context,
-            )
-
-        if not built_context.sources:
-            from src.rag.answer_generator import GeneratedAnswer
-
-            return GeneratedAnswer(
-                answer=self.config.empty_answer_message,
-                sources=built_context.sources,
-                warnings=built_context.warnings,
-                raw_context=built_context.context,
-            )
-
-        try:
-            return self._get_answer_generator().generate(
-                question=question,
-                built_context=built_context,
-                analysis=analysis,
-            )
-        except Exception as exc:
-            if self.config.raise_generation_errors:
-                raise
-
-            built_context.warnings = self._deduplicate_strings(
-                [
-                    *built_context.warnings,
-                    f"답변 생성 중 오류가 발생했습니다: {exc}",
-                ]
-            )
-
-            from src.rag.answer_generator import GeneratedAnswer
-
-            return GeneratedAnswer(
-                answer=(
-                    "답변 생성 중 오류가 발생했습니다. "
-                    "검색 결과와 환경 설정을 확인해주세요."
-                ),
-                sources=built_context.sources,
-                warnings=built_context.warnings,
-                raw_context=built_context.context,
-            )
-
-    def generate_answer_streaming(
-        self,
-        question: str,
-        built_context: BuiltContext,
-        analysis: QueryAnalysis,
-        on_token: TokenCallback | None = None,
-    ) -> GeneratedAnswer:
-        def emit(text: str) -> None:
-            if on_token:
-                on_token(text)
-
-        policy_decision = self._check_answer_policy(
-            question=question,
-            analysis=analysis,
-        )
-
-        if not policy_decision.allowed:
-            from src.rag.answer_generator import GeneratedAnswer
-
-            emit(policy_decision.message)
-            return GeneratedAnswer(
-                answer=policy_decision.message,
-                sources=[],
-                warnings=self._deduplicate_strings(
-                    [*built_context.warnings, policy_decision.reason]
-                ),
-                raw_context=built_context.context,
-            )
-
-        if analysis.route == "clarify":
-            from src.rag.answer_generator import GeneratedAnswer
-
-            answer = (
-                analysis.clarifying_message
-                or "질문을 조금 더 구체적으로 입력해주세요."
-            )
-            emit(answer)
-            return GeneratedAnswer(
-                answer=answer,
-                sources=built_context.sources,
-                warnings=built_context.warnings,
-                raw_context=built_context.context,
-            )
-
-        if not built_context.sources:
-            from src.rag.answer_generator import GeneratedAnswer
-
-            emit(self.config.empty_answer_message)
-            return GeneratedAnswer(
-                answer=self.config.empty_answer_message,
-                sources=built_context.sources,
-                warnings=built_context.warnings,
-                raw_context=built_context.context,
-            )
-
-        try:
-            chunks = []
-
-            for chunk in self._get_answer_generator().stream_generate(
-                question=question,
-                built_context=built_context,
-                analysis=analysis,
-            ):
-                chunks.append(chunk)
-                emit(chunk)
-
-            answer = "".join(chunks).strip()
-
-            if not answer:
-                answer = self.config.empty_answer_message
-                emit(answer)
-
-            from src.rag.answer_generator import GeneratedAnswer
-
-            return GeneratedAnswer(
-                answer=answer,
-                sources=built_context.sources,
-                warnings=built_context.warnings,
-                raw_context=built_context.context,
-            )
-        except Exception as exc:
-            if self.config.raise_generation_errors:
-                raise
-
-            built_context.warnings = self._deduplicate_strings(
-                [
-                    *built_context.warnings,
-                    f"답변 생성 중 오류가 발생했습니다: {exc}",
-                ]
-            )
-
-            answer = (
-                "답변 생성 중 오류가 발생했습니다. "
-                "검색 결과와 환경 설정을 확인해주세요."
-            )
-            emit(answer)
-
-            from src.rag.answer_generator import GeneratedAnswer
-
-            return GeneratedAnswer(
-                answer=answer,
-                sources=built_context.sources,
-                warnings=built_context.warnings,
-                raw_context=built_context.context,
-            )
 
     def run(
         self,
@@ -585,231 +138,727 @@ class RagPipeline:
             previous_department_code=previous_department_code,
         )
 
-        policy_decision = self._check_answer_policy(
-            question=question,
-            analysis=analysis,
-        )
-
-        if not policy_decision.allowed:
-            built_context = self.build_context(
-                analysis=analysis,
-                warnings=[policy_decision.reason],
-            )
-            generated_answer = self.generate_answer(
-                question=question,
-                built_context=built_context,
-                analysis=analysis,
-            )
+        if analysis.route == "clarify":
+            answer = analysis.clarifying_message or "질문을 조금 더 구체적으로 입력해주세요."
 
             return RagPipelineResult(
                 question=question,
+                answer=answer,
                 analysis=analysis,
-                built_context=built_context,
-                generated_answer=generated_answer,
-                warnings=generated_answer.warnings,
+                sources=[],
+                warnings=[],
+                sql_result=None,
+                vector_result=None,
+                context=None,
+                debug_context=self._make_debug_context(
+                    analysis=analysis,
+                    sql_result=None,
+                    vector_result=None,
+                    context=None,
+                ),
             )
 
-        search_result = self.search(
+        sql_result = None
+        vector_result = None
+        warnings: list[str] = []
+
+        if analysis.needs_sql:
+            sql_result = self._run_sql(analysis)
+            warnings.extend(self._extract_warnings(sql_result))
+
+        if analysis.needs_vector:
+            vector_result = self._run_vector(
+                question=question,
+                analysis=analysis,
+                previous_department_code=previous_department_code,
+                force_vector_search=True,
+            )
+            warnings.extend(self._extract_warnings(vector_result))
+
+        # SQL route인데 SQL 결과가 비어 있고, 설명성 fallback이 가능한 질문이면 vector 검색을 보조로 수행
+        if (
+            analysis.route == "sql"
+            and self._is_empty_sql_result(sql_result)
+            and self._can_use_vector_fallback_for_sql(analysis)
+        ):
+            fallback_vector_result = self._run_vector(
+                question=question,
+                analysis=analysis,
+                previous_department_code=previous_department_code,
+                force_vector_search=True,
+            )
+
+            if fallback_vector_result and fallback_vector_result.status == "searched":
+                vector_result = fallback_vector_result
+                warnings.append(
+                    "SQL 조회 결과가 비어 있어 보조 vector 검색을 수행했습니다. "
+                    "답변에는 직접 근거가 있는 내용만 사용해야 합니다."
+                )
+
+            warnings.extend(self._extract_warnings(fallback_vector_result))
+
+        context = self._build_context(
             question=question,
             analysis=analysis,
-            previous_department_code=previous_department_code,
+            sql_result=sql_result,
+            vector_result=vector_result,
         )
 
-        built_context = self.build_context(
-            analysis=analysis,
-            vector_result=search_result.vector_result,
-            sql_result=search_result.sql_result,
-            warnings=search_result.warnings,
-        )
-
-        generated_answer = self.generate_answer(
+        answer, answer_sources, answer_warnings = self._generate_answer(
             question=question,
-            built_context=built_context,
             analysis=analysis,
+            context=context,
+            sql_result=sql_result,
+            vector_result=vector_result,
         )
+
+        warnings.extend(answer_warnings)
+
+        sources = self._merge_sources(
+            answer_sources=answer_sources,
+            sql_result=sql_result,
+            vector_result=vector_result,
+            context=context,
+        )
+
+        warnings = self._deduplicate_strings(warnings)
 
         return RagPipelineResult(
             question=question,
+            answer=answer,
             analysis=analysis,
-            built_context=built_context,
-            generated_answer=generated_answer,
-            vector_result=search_result.vector_result,
-            sql_result=search_result.sql_result,
-            warnings=built_context.warnings,
+            sources=sources,
+            warnings=warnings,
+            sql_result=sql_result,
+            vector_result=vector_result,
+            context=context,
+            debug_context=self._make_debug_context(
+                analysis=analysis,
+                sql_result=sql_result,
+                vector_result=vector_result,
+                context=context,
+            ),
         )
 
     def run_streaming(
         self,
         question: str,
         previous_department_code: str | None = None,
-        on_token: TokenCallback | None = None,
-        on_status: StatusCallback | None = None,
+        on_token: Callable[[str], None] | None = None,
+        on_status: Callable[[str], None] | None = None,
     ) -> RagPipelineResult:
-        def status(message: str) -> None:
-            if on_status:
-                on_status(message)
+        """
+        Streamlit UI와 평가 코드가 동일한 pipeline 경로를 타게 하기 위한 streaming wrapper.
 
-        status("질문 유형을 분석하는 중입니다.")
-        analysis = self.classify_question(
-            question=question,
-            previous_department_code=previous_department_code,
-        )
+        현재는 안정성을 위해 내부적으로 run()을 먼저 수행하고,
+        완성된 답변을 chunk 단위로 on_token에 전달한다.
+        """
+        if on_status:
+            on_status("질문을 분석하고 있습니다.")
 
-        policy_decision = self._check_answer_policy(
-            question=question,
-            analysis=analysis,
-        )
-
-        if not policy_decision.allowed:
-            status("답변 안전 정책을 적용하는 중입니다.")
-            built_context = self.build_context(
-                analysis=analysis,
-                warnings=[policy_decision.reason],
-            )
-            generated_answer = self.generate_answer_streaming(
-                question=question,
-                built_context=built_context,
-                analysis=analysis,
-                on_token=on_token,
-            )
-
-            return RagPipelineResult(
-                question=question,
-                analysis=analysis,
-                built_context=built_context,
-                generated_answer=generated_answer,
-                warnings=generated_answer.warnings,
-            )
-
-        status("관련 문서를 검색하는 중입니다.")
-        search_result = self.search(
-            question=question,
-            analysis=analysis,
-            previous_department_code=previous_department_code,
-        )
-
-        status("답변 context를 구성하는 중입니다.")
-        built_context = self.build_context(
-            analysis=analysis,
-            vector_result=search_result.vector_result,
-            sql_result=search_result.sql_result,
-            warnings=search_result.warnings,
-        )
-
-        status("답변을 생성하는 중입니다.")
-        generated_answer = self.generate_answer_streaming(
-            question=question,
-            built_context=built_context,
-            analysis=analysis,
-            on_token=on_token,
-        )
-
-        status("답변 생성이 완료되었습니다.")
-
-        return RagPipelineResult(
-            question=question,
-            analysis=analysis,
-            built_context=built_context,
-            generated_answer=generated_answer,
-            vector_result=search_result.vector_result,
-            sql_result=search_result.sql_result,
-            warnings=built_context.warnings,
-        )
-
-    def run_dict(
-        self,
-        question: str,
-        previous_department_code: str | None = None,
-        include_debug_context: bool | None = None,
-    ) -> dict[str, Any]:
         result = self.run(
             question=question,
             previous_department_code=previous_department_code,
         )
 
-        return result.to_dict(
-            include_debug_context=(
-                self.config.include_debug_context
-                if include_debug_context is None
-                else include_debug_context
-            )
-        )
+        if on_status:
+            on_status("답변을 생성하고 있습니다.")
 
-    def _search_sql(self, analysis: QueryAnalysis) -> SqlQueryResult | None:
+        if on_token:
+            for chunk in self._chunk_answer_for_streaming(result.answer):
+                on_token(chunk)
+
+        if on_status:
+            on_status("답변 생성이 완료되었습니다.")
+
+        return result
+
+    def search(
+        self,
+        question: str,
+        previous_department_code: str | None = None,
+    ) -> dict[str, Any]:
+        """
+        notebook/debug용 간단 검색 API.
+        """
+        result = self.run(
+            question=question,
+            previous_department_code=previous_department_code,
+        )
+        return result.to_dict()
+
+    # ------------------------------------------------------------
+    # SQL / Vector 실행
+    # ------------------------------------------------------------
+
+    def _run_sql(self, analysis: QueryAnalysis) -> Any | None:
         if self.sql_retriever is None:
-            return None
+            return {
+                "status": "sql_unavailable",
+                "message": "SQLTool이 설정되어 있지 않습니다.",
+                "rows": [],
+                "warnings": ["SQLTool이 설정되어 있지 않습니다."],
+            }
 
         try:
+            if hasattr(self.sql_retriever, "query"):
+                return self.sql_retriever.query(analysis)
+
+            if hasattr(self.sql_retriever, "search"):
+                return self.sql_retriever.search(analysis)
+
             if callable(self.sql_retriever):
                 return self.sql_retriever(analysis)
 
-            return self.sql_retriever.search(analysis)
+            return {
+                "status": "sql_error",
+                "message": "SQL retriever 호출 인터페이스를 찾지 못했습니다.",
+                "rows": [],
+                "warnings": ["SQL retriever 호출 인터페이스를 찾지 못했습니다."],
+            }
+
         except Exception as exc:
-            if self.config.raise_search_errors:
-                raise
+            return {
+                "status": "sql_error",
+                "message": "SQL 조회 중 오류가 발생했습니다.",
+                "rows": [],
+                "warnings": [f"{type(exc).__name__}: {exc}"],
+            }
 
-            from src.rag.context_builder import SqlQueryResult
-
-            return SqlQueryResult(
-                table_name=analysis.sql_table_hint or "unknown",
-                rows=[],
-                conditions=analysis.sql_conditions,
-                message="SQL 검색 중 오류가 발생했습니다.",
-                warnings=[f"SQL 검색 중 오류가 발생했습니다: {exc}"],
-            )
-
-    def _get_vector_retriever(self) -> VectorRetriever:
-        if self._vector_retriever is None:
-            from src.rag.vector_retriever import VectorRetriever
-
-            self._vector_retriever = VectorRetriever(
-                config=self.vector_config,
-                question_analyzer=self.analyzer,
-            )
-
-        return self._vector_retriever
-
-    def _get_context_builder(self) -> ContextBuilder:
-        if self._context_builder is None:
-            from src.rag.context_builder import ContextBuilder
-
-            self._context_builder = ContextBuilder(
-                config=self.context_config,
-            )
-
-        return self._context_builder
-
-    def _get_answer_generator(self) -> AnswerGenerator:
-        if self._answer_generator is None:
-            from src.rag.answer_generator import AnswerGenerator
-
-            self._answer_generator = AnswerGenerator(
-                config=self.answer_config,
-            )
-
-        return self._answer_generator
-
-    def _check_answer_policy(
+    def _run_vector(
         self,
         question: str,
         analysis: QueryAnalysis,
-    ) -> Any:
-        from src.rag.answer_generator import check_answer_policy
+        previous_department_code: str | None,
+        force_vector_search: bool,
+    ) -> VectorRetrievalResult | None:
+        if self.vector_retriever is None:
+            return None
 
-        return check_answer_policy(
+        return self.vector_retriever.retrieve(
             question=question,
+            previous_department_code=previous_department_code,
+            force_vector_search=force_vector_search,
             analysis=analysis,
         )
 
-    def _deduplicate_strings(self, values: list[str]) -> list[str]:
-        seen = set()
-        results = []
+    # ------------------------------------------------------------
+    # Context / Answer
+    # ------------------------------------------------------------
 
-        for value in values:
-            if not value:
+    def _build_context(
+        self,
+        question: str,
+        analysis: QueryAnalysis,
+        sql_result: Any | None,
+        vector_result: VectorRetrievalResult | None,
+    ) -> Any:
+        """
+        ContextBuilder의 기존 구현 차이를 흡수하기 위한 adapter.
+
+        지원하는 형태:
+        - build(question=..., analysis=..., sql_result=..., vector_result=...)
+        - build(analysis=..., sql_result=..., vector_result=...)
+        - build(sql_result, vector_result, analysis)
+        - build_context(...)
+        - ContextBuilder가 없으면 fallback string context 생성
+        """
+        if self.context_builder is None:
+            return self._build_fallback_context(
+                analysis=analysis,
+                sql_result=sql_result,
+                vector_result=vector_result,
+            )
+
+        builder = self.context_builder
+
+        method = None
+
+        if hasattr(builder, "build"):
+            method = builder.build
+        elif hasattr(builder, "build_context"):
+            method = builder.build_context
+
+        if method is None:
+            return self._build_fallback_context(
+                analysis=analysis,
+                sql_result=sql_result,
+                vector_result=vector_result,
+            )
+
+        call_patterns = [
+            lambda: method(
+                question=question,
+                analysis=analysis,
+                sql_result=sql_result,
+                vector_result=vector_result,
+            ),
+            lambda: method(
+                analysis=analysis,
+                sql_result=sql_result,
+                vector_result=vector_result,
+            ),
+            lambda: method(
+                sql_result=sql_result,
+                vector_result=vector_result,
+                analysis=analysis,
+            ),
+            lambda: method(sql_result, vector_result, analysis),
+            lambda: method(vector_result, sql_result, analysis),
+        ]
+
+        last_error: Exception | None = None
+
+        for call in call_patterns:
+            try:
+                return call()
+            except TypeError as exc:
+                last_error = exc
                 continue
 
-            if value in seen:
+        return {
+            "context": self._build_fallback_context(
+                analysis=analysis,
+                sql_result=sql_result,
+                vector_result=vector_result,
+            ),
+            "warnings": [
+                f"ContextBuilder 호출 방식이 맞지 않아 fallback context를 사용했습니다: {last_error}"
+            ],
+        }
+
+    def _generate_answer(
+        self,
+        question: str,
+        analysis: QueryAnalysis,
+        context: Any,
+        sql_result: Any | None,
+        vector_result: VectorRetrievalResult | None,
+    ) -> tuple[str, list[dict[str, Any]], list[str]]:
+        if self.answer_generator is None:
+            return self._fallback_answer(
+                analysis=analysis,
+                context=context,
+                sql_result=sql_result,
+                vector_result=vector_result,
+            )
+
+        generator = self.answer_generator
+
+        method = None
+
+        if hasattr(generator, "generate"):
+            method = generator.generate
+        elif hasattr(generator, "answer"):
+            method = generator.answer
+        elif callable(generator):
+            method = generator
+
+        if method is None:
+            return self._fallback_answer(
+                analysis=analysis,
+                context=context,
+                sql_result=sql_result,
+                vector_result=vector_result,
+            )
+
+        call_patterns = [
+            lambda: method(
+                question=question,
+                analysis=analysis,
+                context=context,
+                sql_result=sql_result,
+                vector_result=vector_result,
+            ),
+            lambda: method(
+                question=question,
+                context=context,
+                analysis=analysis,
+            ),
+            lambda: method(question, context, analysis),
+            lambda: method(question, context),
+        ]
+
+        last_error: Exception | None = None
+
+        for call in call_patterns:
+            try:
+                raw_result = call()
+                return self._normalize_answer_result(raw_result)
+            except TypeError as exc:
+                last_error = exc
+                continue
+            except Exception as exc:
+                return (
+                    "답변 생성 중 오류가 발생했습니다.",
+                    [],
+                    [f"{type(exc).__name__}: {exc}"],
+                )
+
+        fallback_answer, fallback_sources, fallback_warnings = self._fallback_answer(
+            analysis=analysis,
+            context=context,
+            sql_result=sql_result,
+            vector_result=vector_result,
+        )
+        fallback_warnings.append(
+            f"AnswerGenerator 호출 방식이 맞지 않아 fallback 답변을 사용했습니다: {last_error}"
+        )
+
+        return fallback_answer, fallback_sources, fallback_warnings
+
+    # ------------------------------------------------------------
+    # fallback context / answer
+    # ------------------------------------------------------------
+
+    def _build_fallback_context(
+        self,
+        analysis: QueryAnalysis,
+        sql_result: Any | None,
+        vector_result: VectorRetrievalResult | None,
+    ) -> str:
+        parts: list[str] = []
+
+        parts.append("[질문 분석]")
+        parts.append(f"- route: {analysis.route}")
+        parts.append(f"- intent: {analysis.intent}")
+        parts.append(f"- department_code: {analysis.department_code}")
+        parts.append(f"- department_codes: {analysis.department_codes}")
+        parts.append(f"- content_type: {analysis.content_type}")
+
+        rows = self._extract_sql_rows(sql_result)
+
+        if rows:
+            parts.append("\n[SQL 결과]")
+            for idx, row in enumerate(rows[:30], start=1):
+                parts.append(f"{idx}. {row}")
+
+        if vector_result and vector_result.documents:
+            parts.append("\n[Vector 검색 결과]")
+            for idx, item in enumerate(vector_result.results[:8], start=1):
+                metadata = item.document.metadata
+                parts.append(
+                    "\n".join(
+                        [
+                            f"문서 {idx}",
+                            f"- dept: {metadata.get('dept')}",
+                            f"- dept_name: {metadata.get('dept_name')}",
+                            f"- content_type: {metadata.get('content_type')}",
+                            f"- source_type: {metadata.get('source_type')}",
+                            f"- title: {metadata.get('title')}",
+                            f"- source: {metadata.get('source') or metadata.get('source_url')}",
+                            item.document.page_content[:1500],
+                        ]
+                    )
+                )
+
+        return "\n".join(parts)
+
+    def _fallback_answer(
+        self,
+        analysis: QueryAnalysis,
+        context: Any,
+        sql_result: Any | None,
+        vector_result: VectorRetrievalResult | None,
+    ) -> tuple[str, list[dict[str, Any]], list[str]]:
+        rows = self._extract_sql_rows(sql_result)
+
+        if analysis.intent == "requirement_info" and not rows:
+            return (
+                "제공된 자료에서 해당 졸업/수료/이수/논문 요건에 대한 직접 근거를 찾을 수 없습니다.",
+                [],
+                [],
+            )
+
+        if analysis.intent == "department_homepage_info" and rows:
+            lines = ["학과별 홈페이지 URL은 다음과 같습니다."]
+
+            for row in rows:
+                dept_name = row.get("dept_name") or row.get("dept")
+                homepage_url = row.get("homepage_url")
+
+                if homepage_url:
+                    lines.append(f"- {dept_name}: {homepage_url}")
+
+            return "\n".join(lines), [], []
+
+        if rows:
+            lines = ["조회된 정형 데이터는 다음과 같습니다."]
+
+            for idx, row in enumerate(rows[:10], start=1):
+                lines.append(f"{idx}. {row}")
+
+            return "\n".join(lines), [], []
+
+        if vector_result and vector_result.documents:
+            lines = [
+                "검색된 문서 근거를 바탕으로 요약하면 다음과 같습니다.",
+                "",
+            ]
+
+            for idx, item in enumerate(vector_result.results[:3], start=1):
+                metadata = item.document.metadata
+                title = metadata.get("title") or f"문서 {idx}"
+                snippet = item.document.page_content[:500].replace("\n", " ")
+                lines.append(f"- {title}: {snippet}...")
+
+            return "\n".join(lines), [], []
+
+        return (
+            "제공된 자료에서 질문에 대한 근거를 찾을 수 없습니다. "
+            "학과명이나 알고 싶은 정보 유형을 더 구체적으로 입력해주세요.",
+            [],
+            [],
+        )
+
+    # ------------------------------------------------------------
+    # result normalize / source merge
+    # ------------------------------------------------------------
+
+    def _normalize_answer_result(
+        self,
+        raw_result: Any,
+    ) -> tuple[str, list[dict[str, Any]], list[str]]:
+        if isinstance(raw_result, str):
+            return raw_result, [], []
+
+        if isinstance(raw_result, dict):
+            answer = (
+                raw_result.get("answer")
+                or raw_result.get("content")
+                or raw_result.get("message")
+                or ""
+            )
+            sources = raw_result.get("sources") or []
+            warnings = raw_result.get("warnings") or []
+
+            return str(answer), list(sources), list(warnings)
+
+        answer = getattr(raw_result, "answer", None)
+        if answer is None:
+            answer = getattr(raw_result, "content", None)
+
+        sources = getattr(raw_result, "sources", [])
+        warnings = getattr(raw_result, "warnings", [])
+
+        if answer is None:
+            answer = str(raw_result)
+
+        return str(answer), list(sources or []), list(warnings or [])
+
+    def _merge_sources(
+        self,
+        answer_sources: list[dict[str, Any]],
+        sql_result: Any | None,
+        vector_result: VectorRetrievalResult | None,
+        context: Any,
+    ) -> list[dict[str, Any]]:
+        sources: list[dict[str, Any]] = []
+
+        sources.extend(answer_sources or [])
+
+        # ContextBuilder가 sources를 갖고 있으면 우선 사용
+        context_sources = self._extract_context_sources(context)
+        sources.extend(context_sources)
+
+        # SQL source
+        sql_sources = self._extract_sql_sources(sql_result)
+        sources.extend(sql_sources)
+
+        # Vector source
+        if vector_result:
+            for item in vector_result.results:
+                metadata = item.document.metadata
+                source_url = metadata.get("source") or metadata.get("source_url") or metadata.get("url") or ""
+
+                sources.append(
+                    {
+                        "source_type": "vector",
+                        "source": source_url,
+                        "title": metadata.get("title") or source_url or "Vector document",
+                        "department": metadata.get("dept_name") or metadata.get("dept"),
+                        "content_type": metadata.get("content_type"),
+                        "metadata": dict(metadata),
+                        "score": item.score,
+                        "rerank_score": item.rerank_score,
+                    }
+                )
+
+        return self._deduplicate_sources(sources)
+
+    def _extract_context_sources(self, context: Any) -> list[dict[str, Any]]:
+        if context is None:
+            return []
+
+        if isinstance(context, dict):
+            sources = context.get("sources") or []
+            return list(sources)
+
+        sources = getattr(context, "sources", None)
+
+        if sources:
+            return list(sources)
+
+        return []
+
+    def _extract_sql_sources(self, sql_result: Any | None) -> list[dict[str, Any]]:
+        if sql_result is None:
+            return []
+
+        table_name = self._get_attr_or_key(sql_result, "table_name")
+        rows = self._extract_sql_rows(sql_result)
+
+        sources: list[dict[str, Any]] = []
+
+        for row in rows[:30]:
+            if not isinstance(row, dict):
+                continue
+
+            source_url = (
+                row.get("source_url")
+                or row.get("url")
+                or row.get("homepage_url")
+                or row.get("website")
+                or ""
+            )
+
+            title = (
+                row.get("title")
+                or row.get("dept_name")
+                or row.get("name")
+                or row.get("course_name")
+                or row.get("link_name")
+                or table_name
+                or "SQL source"
+            )
+
+            sources.append(
+                {
+                    "source_type": "sql",
+                    "source": source_url,
+                    "title": title,
+                    "department": row.get("dept_name") or row.get("dept"),
+                    "content_type": table_name,
+                    "metadata": {
+                        "table_name": table_name,
+                        **row,
+                    },
+                }
+            )
+
+        if not sources and table_name:
+            sources.append(
+                {
+                    "source_type": "sql",
+                    "source": "",
+                    "title": str(table_name),
+                    "department": "",
+                    "content_type": str(table_name),
+                    "metadata": {
+                        "table_name": table_name,
+                        "row_count": len(rows),
+                    },
+                }
+            )
+
+        return sources
+
+    def _deduplicate_sources(
+        self,
+        sources: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        deduped: list[dict[str, Any]] = []
+        seen: set[str] = set()
+
+        for source in sources:
+            key = "|".join(
+                [
+                    str(source.get("source_type", "")),
+                    str(source.get("source", "")),
+                    str(source.get("title", "")),
+                    str(source.get("department", "")),
+                    str(source.get("content_type", "")),
+                ]
+            )
+
+            if key in seen:
+                continue
+
+            seen.add(key)
+            deduped.append(source)
+
+        return deduped
+
+    # ------------------------------------------------------------
+    # utility
+    # ------------------------------------------------------------
+
+    def _extract_sql_rows(self, sql_result: Any | None) -> list[dict[str, Any]]:
+        if sql_result is None:
+            return []
+
+        if isinstance(sql_result, dict):
+            rows = sql_result.get("rows") or sql_result.get("results") or []
+            return list(rows)
+
+        rows = getattr(sql_result, "rows", None)
+
+        if rows is None:
+            rows = getattr(sql_result, "results", None)
+
+        if rows is None:
+            return []
+
+        return list(rows)
+
+    def _is_empty_sql_result(self, sql_result: Any | None) -> bool:
+        return len(self._extract_sql_rows(sql_result)) == 0
+
+    def _can_use_vector_fallback_for_sql(self, analysis: QueryAnalysis) -> bool:
+        """
+        SQL 결과가 비어 있을 때 vector fallback을 사용할 수 있는지 판단.
+
+        requirement_info는 데이터가 없으면 없다고 말해야 하므로 fallback을 남용하지 않는다.
+        department_homepage_info도 대표 홈페이지 seed 테이블이 있어야 하므로 fallback 불필요.
+        """
+        if analysis.intent in {
+            "requirement_info",
+            "department_homepage_info",
+            "kaist_profile_info",
+            "kaist_statistics_info",
+            "kaist_link_info",
+        }:
+            return False
+
+        return True
+
+    def _get_attr_or_key(self, obj: Any, key: str, default: Any = None) -> Any:
+        if obj is None:
+            return default
+
+        if isinstance(obj, dict):
+            return obj.get(key, default)
+
+        return getattr(obj, key, default)
+
+    def _extract_warnings(self, obj: Any | None) -> list[str]:
+        if obj is None:
+            return []
+
+        if isinstance(obj, dict):
+            warnings = obj.get("warnings") or []
+            return [str(warning) for warning in warnings if warning]
+
+        warnings = getattr(obj, "warnings", [])
+
+        return [str(warning) for warning in warnings if warning]
+
+    def _deduplicate_strings(self, values: list[str]) -> list[str]:
+        results: list[str] = []
+        seen: set[str] = set()
+
+        for value in values:
+            if not value or value in seen:
                 continue
 
             seen.add(value)
@@ -817,101 +866,172 @@ class RagPipeline:
 
         return results
 
+    def _make_debug_context(
+        self,
+        analysis: QueryAnalysis,
+        sql_result: Any | None,
+        vector_result: VectorRetrievalResult | None,
+        context: Any,
+    ) -> dict[str, Any] | None:
+        if not self.include_debug_context:
+            return None
+
+        debug: dict[str, Any] = {
+            "analysis": analysis.to_dict(),
+            "sql_result": self._debug_sql_result(sql_result),
+            "vector_result": vector_result.to_debug_dict() if vector_result else None,
+            "context_type": type(context).__name__ if context is not None else None,
+        }
+
+        return debug
+
+    def _debug_sql_result(self, sql_result: Any | None) -> Any:
+        if sql_result is None:
+            return None
+
+        if isinstance(sql_result, dict):
+            return sql_result
+
+        if hasattr(sql_result, "to_debug_dict"):
+            return sql_result.to_debug_dict()
+
+        if hasattr(sql_result, "to_dict"):
+            return sql_result.to_dict()
+
+        result = {
+            "type": type(sql_result).__name__,
+            "table_name": self._get_attr_or_key(sql_result, "table_name"),
+            "message": self._get_attr_or_key(sql_result, "message"),
+            "rows": self._extract_sql_rows(sql_result)[:5],
+            "warnings": self._extract_warnings(sql_result),
+        }
+
+        return result
+
+    def _chunk_answer_for_streaming(self, answer: str) -> list[str]:
+        if not answer:
+            return []
+
+        chunks: list[str] = []
+        buffer = ""
+
+        for char in answer:
+            buffer += char
+
+            if len(buffer) >= 20 or char in {"\n", ".", "?", "!", "。"}:
+                chunks.append(buffer)
+                buffer = ""
+
+        if buffer:
+            chunks.append(buffer)
+
+        return chunks
+
+
+# ============================================================
+# 3. 기본 pipeline 생성 함수
+# ============================================================
+
 def create_default_pipeline(
     include_sql: bool = True,
     include_debug_context: bool = False,
-    preload_vector_retriever: bool = False,
+    preload_vector_retriever: bool = True,
     preload_answer_generator: bool = False,
 ) -> RagPipeline:
-    """
-    앱과 테스트 코드에서 공통으로 사용할 기본 RAG Pipeline을 생성합니다.
+    load_dotenv()
 
-    include_sql=True인 경우 SQLTool 연결을 시도합니다.
-    SQLTool 연결 실패 시에도 Vector 기반 RAG는 계속 사용할 수 있도록 처리합니다.
-    """
+    question_analyzer = QuestionAnalyzer()
+
     sql_retriever = None
+    vector_retriever = None
+    context_builder = None
+    answer_generator = None
 
-    if include_sql:
+    warnings: list[str] = []
+
+    if include_sql and SQLTool is not None:
         try:
-            from src.rag.sql_tool import SQLTool
-
             sql_retriever = SQLTool()
-        except Exception:
-            sql_retriever = None
+        except Exception as exc:
+            warnings.append(f"SQLTool 초기화 실패: {type(exc).__name__}: {exc}")
 
-    config = RagPipelineConfig(
-        use_vector_when_sql_unavailable=True,
-        use_vector_when_sql_empty=True,
-        include_debug_context=include_debug_context,
-        preload_vector_retriever=preload_vector_retriever,
-        preload_answer_generator=preload_answer_generator,
-    )
+    if preload_vector_retriever:
+        try:
+            vector_retriever = VectorRetriever(
+                question_analyzer=question_analyzer,
+            )
+        except Exception as exc:
+            warnings.append(f"VectorRetriever 초기화 실패: {type(exc).__name__}: {exc}")
+            vector_retriever = None
 
-    return RagPipeline(
-        config=config,
+    if ContextBuilder is not None:
+        try:
+            context_builder = ContextBuilder()
+        except Exception as exc:
+            warnings.append(f"ContextBuilder 초기화 실패: {type(exc).__name__}: {exc}")
+            context_builder = None
+
+    if preload_answer_generator and AnswerGenerator is not None:
+        try:
+            answer_generator = AnswerGenerator()
+        except Exception as exc:
+            warnings.append(f"AnswerGenerator 초기화 실패: {type(exc).__name__}: {exc}")
+            answer_generator = None
+    elif AnswerGenerator is not None:
+        try:
+            answer_generator = AnswerGenerator()
+        except Exception as exc:
+            warnings.append(f"AnswerGenerator 초기화 실패: {type(exc).__name__}: {exc}")
+            answer_generator = None
+
+    pipeline = RagPipeline(
+        question_analyzer=question_analyzer,
         sql_retriever=sql_retriever,
-    )
-
-def answer_question(
-    question: str,
-    previous_department_code: str | None = None,
-    pipeline: RagPipeline | None = None,
-) -> RagPipelineResult:
-    pipeline = pipeline or create_default_pipeline()
-
-    return pipeline.run(
-        question=question,
-        previous_department_code=previous_department_code,
-    )
-
-
-def answer_question_dict(
-    question: str,
-    previous_department_code: str | None = None,
-    pipeline: RagPipeline | None = None,
-    include_debug_context: bool | None = None,
-) -> dict[str, Any]:
-    pipeline = pipeline or create_default_pipeline(
-        include_debug_context=bool(include_debug_context),
-    )
-
-    return pipeline.run_dict(
-        question=question,
-        previous_department_code=previous_department_code,
+        vector_retriever=vector_retriever,
+        context_builder=context_builder,
+        answer_generator=answer_generator,
         include_debug_context=include_debug_context,
     )
 
-def run_examples() -> None:
+    if warnings:
+        pipeline._startup_warnings = warnings  # type: ignore[attr-defined]
+
+    return pipeline
+
+
+# ============================================================
+# 4. 수동 테스트
+# ============================================================
+
+if __name__ == "__main__":
     pipeline = create_default_pipeline(
         include_sql=True,
         include_debug_context=True,
-        preload_vector_retriever=False,
-        preload_answer_generator=False,
+        preload_vector_retriever=True,
+        preload_answer_generator=True,
     )
 
     questions = [
-        "AI컴퓨팅학과 석사 지원 자격 알려줘",
-        "AX학과 교수 이메일 알려줘",
-        "AI시스템학과 교과목 설명해줘",
-        "KAIST 학과사무실 전화번호 알려줘",
+        "AI대학 학과별 홈페이지 URL을 정리해줘.",
+        "AI컴퓨팅학과의 연락처가 문서에 나와 있어?",
+        "AI미래학과는 어떤 인재를 양성하려고 해?",
+        "AI컴퓨팅학과와 AX학과를 비교해줘.",
+        "나는 AI 서비스 적용에 관심이 있는데 어떤 학과가 맞아?",
+        "AI컴퓨팅학과의 졸업 요건이 문서에 나와 있어?",
     ]
 
     for question in questions:
         print("=" * 100)
-        print(f"질문: {question}")
+        print("Q:", question)
 
-        result = pipeline.run_dict(
-            question=question,
-            include_debug_context=True,
-        )
+        result = pipeline.run(question)
 
-        print("route:", result["route"])
-        print("intent:", result["intent"])
-        print("department_code:", result["department_code"])
-        print("answer:", result["answer"][:500])
-        print("sources:", result["sources"][:3])
-        print("warnings:", result["warnings"])
-
-
-if __name__ == "__main__":
-    run_examples()
+        print("route:", result.route)
+        print("intent:", result.intent)
+        print("department_code:", result.department_code)
+        print("department_codes:", result.department_codes)
+        print("needs_clarification:", result.needs_clarification)
+        print("warnings:", result.warnings)
+        print("sources:", len(result.sources))
+        print("answer:")
+        print(result.answer[:1500])

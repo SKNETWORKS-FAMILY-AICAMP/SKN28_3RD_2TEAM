@@ -1,7 +1,0 @@
-﻿id,category,question,expected,answer,sources,source_count,latency_sec,error,auto_eval
-99,환각 방지,서울대학교 AI대학원과 KAIST AI대학을 교수진 기준으로 비교해줘.,reject,"현재 수집된 자료에는 '서울대학교 AI대학원'에 대해 답변할 만큼 충분한 정보가 없습니다.
-
-이 챗봇은 수집된 KAIST AI 관련 학과 자료를 중심으로 답변합니다. 정확하고 최신 정보는 KAIST 공식 홈페이지나 입학처에서 확인하거나, 학과명을 포함해 직접 검색해 주세요.
-
-- KAIST 공식 홈페이지: https://www.kaist.ac.kr/kr/
-- KAIST 입학처: https://admission.kaist.ac.kr/home",,0,0.0,,FAIL_POSSIBLE_HALLUCINATION

@@ -1,49 +1,48 @@
 from __future__ import annotations
 
+import json
 import sys
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
-CURRENT_FILE = Path(__file__).resolve()
-PROJECT_ROOT_FROM_FILE = CURRENT_FILE.parents[2]
 
-if str(PROJECT_ROOT_FROM_FILE) not in sys.path:
-    sys.path.insert(0, str(PROJECT_ROOT_FROM_FILE))
+CURRENT_FILE = Path(__file__).resolve()
+PROJECT_ROOT = CURRENT_FILE.parents[2]
+
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.rag.query_analyzer import QueryAnalysis
 
 
+# ============================================================
+# 1. 설정 / 결과 dataclass
+# ============================================================
+
 @dataclass
 class ContextBuilderConfig:
-    max_vector_docs: int = 5
-    max_sql_rows: int = 30
-    max_chars_per_vector_doc: int = 1500
-    max_total_context_chars: int = 12000
-    include_debug_info: bool = False
-    include_question_analysis: bool = False
+    max_total_context_chars: int = 12_000
 
+    max_sql_rows: int = 40
+    max_sql_rows_per_dept: int = 8
 
-@dataclass
-class SqlQueryResult:
-    table_name: str
-    rows: list[dict[str, Any]]
-    columns: list[str] = field(default_factory=list)
-    conditions: dict[str, Any] = field(default_factory=dict)
-    message: str = ""
-    warnings: list[str] = field(default_factory=list)
+    max_vector_docs: int = 8
+    max_vector_chars_per_doc: int = 1_500
 
-    def is_empty(self) -> bool:
-        return len(self.rows) == 0
+    include_analysis_section: bool = True
+    include_sql_section: bool = True
+    include_vector_section: bool = True
+    include_warning_section: bool = True
 
 
 @dataclass
 class SourceItem:
     source_type: str
-    title: str = ""
+    title: str
     source: str = ""
-    department: str = ""
-    content_type: str = ""
+    department: str | None = None
+    content_type: str | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -52,435 +51,937 @@ class SourceItem:
 
 @dataclass
 class BuiltContext:
-    context: str
-    vector_context: str = ""
-    sql_context: str = ""
-    sources: list[SourceItem] = field(default_factory=list)
+    question: str
+    context_text: str
+    sources: list[dict[str, Any]] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
 
-    @property
-    def has_evidence(self) -> bool:
-        return bool(self.sources)
+    sql_row_count: int = 0
+    vector_doc_count: int = 0
+    has_direct_evidence: bool = False
+
+    sql_table_name: str | None = None
+    vector_content_types: list[str] = field(default_factory=list)
+    vector_departments: list[str] = field(default_factory=list)
+
+    def __str__(self) -> str:
+        return self.context_text
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "context": self.context,
-            "vector_context": self.vector_context,
-            "sql_context": self.sql_context,
-            "sources": [source.to_dict() for source in self.sources],
+            "question": self.question,
+            "context_text": self.context_text,
+            "sources": self.sources,
             "warnings": self.warnings,
-            "has_evidence": self.has_evidence,
+            "sql_row_count": self.sql_row_count,
+            "vector_doc_count": self.vector_doc_count,
+            "has_direct_evidence": self.has_direct_evidence,
+            "sql_table_name": self.sql_table_name,
+            "vector_content_types": self.vector_content_types,
+            "vector_departments": self.vector_departments,
         }
 
 
+# ============================================================
+# 2. ContextBuilder
+# ============================================================
+
 class ContextBuilder:
-    def __init__(self, config: ContextBuilderConfig | None = None) -> None:
+    def __init__(
+        self,
+        config: ContextBuilderConfig | None = None,
+    ) -> None:
         self.config = config or ContextBuilderConfig()
+
+    # ------------------------------------------------------------
+    # public API
+    # ------------------------------------------------------------
 
     def build(
         self,
-        analysis: QueryAnalysis,
+        question: str | None = None,
+        analysis: QueryAnalysis | None = None,
+        sql_result: Any | None = None,
         vector_result: Any | None = None,
-        sql_result: SqlQueryResult | None = None,
+        **kwargs: Any,
     ) -> BuiltContext:
-        vector_context = self._build_vector_context(vector_result)
-        sql_context = self._build_sql_context(sql_result)
-        warnings = self._collect_warnings(
-            vector_result=vector_result,
+        """
+        RagPipeline에서 호출하는 기본 context 생성 함수.
+
+        호출 호환성:
+        - build(question=..., analysis=..., sql_result=..., vector_result=...)
+        - build(analysis=..., sql_result=..., vector_result=...)
+        """
+        if question is None:
+            question = ""
+            if analysis is not None:
+                question = analysis.original_question
+
+        if analysis is None:
+            raise ValueError("ContextBuilder.build에는 analysis가 필요합니다.")
+
+        sql_rows = self._extract_sql_rows(sql_result)
+        sql_table_name = self._get_attr_or_key(sql_result, "table_name")
+
+        vector_items = self._extract_vector_items(vector_result)
+
+        selected_sql_rows = self._select_sql_rows(
+            rows=sql_rows,
+            analysis=analysis,
+        )
+
+        selected_vector_items = self._select_vector_items(
+            vector_items=vector_items,
+            analysis=analysis,
+        )
+
+        warnings = self._build_warnings(
+            analysis=analysis,
             sql_result=sql_result,
-        )
-        # fallback으로 가져온 vector 문서는 원래 질문 의도와 다를 수 있으므로
-        # warning 목록뿐 아니라 실제 LLM context에도 명시한다.
-        if vector_result and getattr(vector_result, "used_fallback", False):
-            vector_context = self._prepend_fallback_warning_to_context(
-                vector_context=vector_context,
-                analysis=analysis,
-            )
-        sources = self._collect_sources(
             vector_result=vector_result,
-            sql_result=sql_result,
-        )
-        context_parts = []
-        if self.config.include_question_analysis:
-            context_parts.append(self._build_question_context(analysis))
-        context_parts.extend([sql_context, vector_context])
-        context = "\n\n".join(
-            part
-            for part in context_parts
-            if part.strip()
-        )
-        context = self._limit_context(context)
-        if not context.strip():
-            context = "사용 가능한 검색 결과가 없습니다."
-        return BuiltContext(
-            context=context,
-            vector_context=vector_context,
-            sql_context=sql_context,
-            sources=sources,
-            warnings=warnings,
+            sql_rows=sql_rows,
+            vector_items=vector_items,
         )
 
-    def _build_question_context(self, analysis: QueryAnalysis) -> str:
-        return (
-            "<internal_question_analysis>\n"
-            "이 블록은 라우팅과 답변 형식 결정을 위한 내부 분석입니다.\n"
-            "사실 근거로 사용하지 마세요.\n"
-            f"route: {analysis.route}\n"
-            f"intent: {analysis.intent}\n"
-            f"department: {analysis.department_name or 'unknown'}\n"
-            f"content_type: {analysis.content_type or 'unknown'}\n"
-            "</internal_question_analysis>"
+        sources = self._build_sources(
+            sql_rows=selected_sql_rows,
+            sql_table_name=sql_table_name,
+            vector_items=selected_vector_items,
         )
 
-    def _prepend_fallback_warning_to_context(
-        self,
-        vector_context: str,
-        analysis: QueryAnalysis,
-    ) -> str:
-        if not vector_context.strip():
-            return vector_context
-
-        expected_content_type = analysis.content_type or "unknown"
-
-        warning = (
-            "[검색 주의]\n"
-            f"원래 질문에서 기대한 문서유형은 '{expected_content_type}'입니다.\n"
-            "하지만 해당 조건과 정확히 일치하는 검색 결과가 부족하여 fallback 검색 결과가 포함되었습니다.\n"
-            "아래 Vector 문서는 보조 참고 자료일 수 있으며, 질문과 직접 관련 없는 문서유형이 섞여 있을 수 있습니다.\n"
-            "답변을 생성할 때는 원 질문과 직접 관련된 근거만 사용하고, 근거가 부족하면 부족하다고 명시하세요."
+        has_direct_evidence = self._has_direct_evidence(
+            analysis=analysis,
+            sql_rows=sql_rows,
+            vector_items=vector_items,
         )
 
-        return f"{warning}\n\n{vector_context}"
+        sections: list[str] = []
 
-    def _build_vector_context(
-        self,
-        vector_result: Any | None,
-    ) -> str:
-        if vector_result is None:
-            return ""
+        if self.config.include_warning_section and warnings:
+            sections.append(self._format_warning_section(warnings))
 
-        if not vector_result.results:
-            return "[Vector 검색 결과]\n검색된 문서가 없습니다."
-
-        blocks = ["[Vector 검색 결과]"]
-
-        selected_items = vector_result.results[: self.config.max_vector_docs]
-
-        for index, item in enumerate(selected_items, start=1):
-            blocks.append(
-                self._format_vector_item(
-                    index=index,
-                    item=item,
+        if self.config.include_analysis_section:
+            sections.append(
+                self._format_analysis_section(
+                    question=question,
+                    analysis=analysis,
+                    has_direct_evidence=has_direct_evidence,
                 )
             )
 
-        return "\n\n".join(blocks)
-
-    def _format_vector_item(
-        self,
-        index: int,
-        item: Any,
-    ) -> str:
-        document = item.document
-        metadata = document.metadata
-
-        department = metadata.get("dept_name") or metadata.get("department") or ""
-        content_type = metadata.get("content_type") or metadata.get("doc_type") or ""
-        title = metadata.get("title") or ""
-        source = metadata.get("source_url") or metadata.get("source") or metadata.get("url") or ""
-        crawled_at = metadata.get("crawled_at") or ""
-
-        content = document.page_content
-
-        if len(content) > self.config.max_chars_per_vector_doc:
-            content = (
-                content[: self.config.max_chars_per_vector_doc]
-                .rstrip()
-                + "\n...[중략]"
+        if self.config.include_sql_section:
+            sql_section = self._format_sql_section(
+                rows=selected_sql_rows,
+                table_name=sql_table_name,
+                total_row_count=len(sql_rows),
             )
 
-        debug_lines = ""
+            if sql_section:
+                sections.append(sql_section)
 
-        if self.config.include_debug_info:
-            debug_lines = (
-                f"검색단계: {item.search_stage}\n"
-                f"vector_score: {item.score}\n"
-                f"rerank_score: {item.rerank_score}\n"
+        if self.config.include_vector_section:
+            vector_section = self._format_vector_section(
+                vector_items=selected_vector_items,
+                total_doc_count=len(vector_items),
             )
 
-        return (
-            f"[문서 {index}]\n"
-            f"학과: {department}\n"
-            f"문서유형: {content_type}\n"
-            f"제목: {title}\n"
-            f"출처: {source}\n"
-            f"수집일: {crawled_at or 'unknown'}\n"
-            f"{self._format_optional_metadata(metadata)}"
-            f"{debug_lines}"
-            f"내용:\n{content}"
+            if vector_section:
+                sections.append(vector_section)
+
+        if not selected_sql_rows and not selected_vector_items:
+            sections.append(
+                "[검색 결과 없음]\n"
+                "제공된 SQL/Vector 검색 결과에서 질문에 대한 직접 근거를 찾지 못했습니다."
+            )
+
+        context_text = "\n\n".join(sections)
+        context_text = self._truncate_context(context_text)
+
+        vector_content_types = self._unique_non_empty(
+            [
+                str(self._get_vector_metadata(item).get("content_type", ""))
+                for item in vector_items
+            ]
         )
 
-    def _format_optional_metadata(
+        vector_departments = self._unique_non_empty(
+            [
+                str(
+                    self._get_vector_metadata(item).get("dept_name")
+                    or self._get_vector_metadata(item).get("dept")
+                    or ""
+                )
+                for item in vector_items
+            ]
+        )
+
+        return BuiltContext(
+            question=question,
+            context_text=context_text,
+            sources=sources,
+            warnings=warnings,
+            sql_row_count=len(sql_rows),
+            vector_doc_count=len(vector_items),
+            has_direct_evidence=has_direct_evidence,
+            sql_table_name=sql_table_name,
+            vector_content_types=vector_content_types,
+            vector_departments=vector_departments,
+        )
+
+    def build_context(
         self,
-        metadata: dict[str, Any],
-    ) -> str:
-        field_map = [
-            ("file_name", "파일명"),
-            ("section", "섹션"),
-            ("page", "페이지"),
-            ("chunk_index", "청크"),
-            ("course_code", "과목코드"),
-            ("course_type", "이수구분"),
-            ("role", "역할"),
-            ("email", "이메일"),
-            ("homepage", "홈페이지"),
-            ("event_date", "행사일"),
-        ]
+        question: str | None = None,
+        analysis: QueryAnalysis | None = None,
+        sql_result: Any | None = None,
+        vector_result: Any | None = None,
+        **kwargs: Any,
+    ) -> BuiltContext:
+        return self.build(
+            question=question,
+            analysis=analysis,
+            sql_result=sql_result,
+            vector_result=vector_result,
+            **kwargs,
+        )
 
-        lines = []
+    # ------------------------------------------------------------
+    # extraction
+    # ------------------------------------------------------------
 
-        for key, label in field_map:
-            value = metadata.get(key)
-
-            if value:
-                lines.append(f"{label}: {value}")
-
-        if not lines:
-            return ""
-
-        return "\n".join(lines) + "\n"
-
-    def _get_sql_table_label(self, table_name: str) -> str:
-        table_name_map = {
-            "admissions": "입학 정보",
-            "courses": "교과목 정보",
-            "course_track_map": "교과목-트랙 매핑 정보",
-            "people": "교수진/구성원 정보",
-            "professors": "교수진/구성원 정보",
-            "person": "교수진/구성원 정보",
-            "office_contacts": "학과 사무실 연락처",
-            "department_offices": "학과 사무실 연락처",
-            "events": "행사/공지 정보",
-            "assets": "자료/링크 정보",
-            "kaist_profile": "KAIST 기본 정보",
-            "kaist_statistics": "KAIST 통계 정보",
-            "kaist_links": "KAIST 공식 링크 정보",
-        }
-
-        return table_name_map.get(table_name, table_name)
-
-    def _build_sql_context(
-        self,
-        sql_result: SqlQueryResult | None,
-    ) -> str:
+    def _extract_sql_rows(self, sql_result: Any | None) -> list[dict[str, Any]]:
         if sql_result is None:
-            return ""
+            return []
 
-        if sql_result.is_empty():
-            table_label = self._get_sql_table_label(sql_result.table_name)
+        if isinstance(sql_result, dict):
+            rows = sql_result.get("rows") or sql_result.get("results") or []
+            return [dict(row) for row in rows if isinstance(row, dict)]
 
-            return (
-                "[SQL 조회 결과]\n"
-                f"table: {table_label}\n"
-                f"raw_table: {sql_result.table_name}\n"
-                "조회된 행이 없습니다."
-            )
+        rows = getattr(sql_result, "rows", None)
 
-        columns = self._get_sql_columns(sql_result)
-        rows = sql_result.rows[: self.config.max_sql_rows]
+        if rows is None:
+            rows = getattr(sql_result, "results", None)
 
-        table_label = self._get_sql_table_label(sql_result.table_name)
+        if rows is None:
+            return []
 
-        lines = [
-            "[SQL 조회 결과]",
-            f"table: {table_label}",
-            f"raw_table: {sql_result.table_name}",
-        ]
+        return [dict(row) for row in rows if isinstance(row, dict)]
 
-        if sql_result.conditions:
-            lines.append(f"조회 조건: {sql_result.conditions}")
+    def _extract_vector_items(self, vector_result: Any | None) -> list[Any]:
+        if vector_result is None:
+            return []
 
-        lines.append("")
-        lines.append("| " + " | ".join(columns) + " |")
-        lines.append("| " + " | ".join(["---"] * len(columns)) + " |")
+        results = getattr(vector_result, "results", None)
+
+        if results is not None:
+            return list(results)
+
+        documents = getattr(vector_result, "documents", None)
+
+        if documents is not None:
+            return list(documents)
+
+        if isinstance(vector_result, dict):
+            results = vector_result.get("results") or vector_result.get("documents") or []
+            return list(results)
+
+        return []
+
+    def _get_attr_or_key(
+        self,
+        obj: Any,
+        key: str,
+        default: Any = None,
+    ) -> Any:
+        if obj is None:
+            return default
+
+        if isinstance(obj, dict):
+            return obj.get(key, default)
+
+        return getattr(obj, key, default)
+
+    def _get_vector_document(self, item: Any) -> Any:
+        if hasattr(item, "document"):
+            return item.document
+
+        return item
+
+    def _get_vector_metadata(self, item: Any) -> dict[str, Any]:
+        document = self._get_vector_document(item)
+        metadata = getattr(document, "metadata", None)
+
+        if isinstance(metadata, dict):
+            return metadata
+
+        if isinstance(item, dict):
+            metadata = item.get("metadata")
+
+            if isinstance(metadata, dict):
+                return metadata
+
+        return {}
+
+    def _get_vector_page_content(self, item: Any) -> str:
+        document = self._get_vector_document(item)
+
+        content = getattr(document, "page_content", None)
+
+        if content is not None:
+            return str(content)
+
+        if isinstance(item, dict):
+            return str(item.get("page_content") or item.get("text") or "")
+
+        return str(document)
+
+    def _get_vector_score(self, item: Any) -> Any:
+        if hasattr(item, "score"):
+            return item.score
+
+        if isinstance(item, dict):
+            return item.get("score")
+
+        return None
+
+    def _get_vector_stage(self, item: Any) -> str | None:
+        if hasattr(item, "search_stage"):
+            return item.search_stage
+
+        if isinstance(item, dict):
+            return item.get("search_stage")
+
+        return None
+
+    # ------------------------------------------------------------
+    # row selection
+    # ------------------------------------------------------------
+
+    def _select_sql_rows(
+        self,
+        rows: list[dict[str, Any]],
+        analysis: QueryAnalysis,
+    ) -> list[dict[str, Any]]:
+        if not rows:
+            return []
+
+        if len(rows) <= self.config.max_sql_rows:
+            return rows
+
+        # 특정 학과 질문이면 해당 학과 우선
+        if analysis.department_code:
+            dept_rows = [
+                row for row in rows
+                if row.get("dept") == analysis.department_code
+            ]
+
+            if dept_rows:
+                return dept_rows[: self.config.max_sql_rows]
+
+        # 전체/비교/학과별 질문은 학과별 균등 샘플링
+        return self._balanced_sample_rows_by_department(
+            rows=rows,
+            max_total_rows=self.config.max_sql_rows,
+            max_rows_per_dept=self.config.max_sql_rows_per_dept,
+        )
+
+    def _balanced_sample_rows_by_department(
+        self,
+        rows: list[dict[str, Any]],
+        max_total_rows: int,
+        max_rows_per_dept: int,
+    ) -> list[dict[str, Any]]:
+        grouped: dict[str, list[dict[str, Any]]] = {}
 
         for row in rows:
-            values = [
-                self._safe_cell(row.get(column, ""))
-                for column in columns
-            ]
-            lines.append("| " + " | ".join(values) + " |")
-
-        if len(sql_result.rows) > self.config.max_sql_rows:
-            lines.append(
-                f"\n...총 {len(sql_result.rows)}개 중 "
-                f"{self.config.max_sql_rows}개만 표시"
+            dept_key = str(
+                row.get("dept")
+                or row.get("dept_name")
+                or row.get("department")
+                or "unknown"
             )
+
+            grouped.setdefault(dept_key, []).append(row)
+
+        selected: list[dict[str, Any]] = []
+
+        preferred_order = ["aic", "ai_systems", "ax", "fx"]
+
+        ordered_keys = [
+            key for key in preferred_order
+            if key in grouped
+        ] + [
+            key for key in grouped
+            if key not in preferred_order
+        ]
+
+        for key in ordered_keys:
+            selected.extend(grouped[key][:max_rows_per_dept])
+
+            if len(selected) >= max_total_rows:
+                break
+
+        return selected[:max_total_rows]
+
+    def _select_vector_items(
+        self,
+        vector_items: list[Any],
+        analysis: QueryAnalysis,
+    ) -> list[Any]:
+        if not vector_items:
+            return []
+
+        if analysis.intent in {"comparison_info", "recommendation_info"}:
+            dept_codes = analysis.department_codes or ["aic", "ai_systems", "ax", "fx"]
+
+            return self._balanced_sample_vector_by_department(
+                vector_items=vector_items,
+                dept_codes=dept_codes,
+                max_docs=self.config.max_vector_docs,
+            )
+
+        return vector_items[: self.config.max_vector_docs]
+
+    def _balanced_sample_vector_by_department(
+        self,
+        vector_items: list[Any],
+        dept_codes: list[str],
+        max_docs: int,
+    ) -> list[Any]:
+        selected: list[Any] = []
+        used_ids: set[str] = set()
+
+        for dept_code in dept_codes:
+            dept_items = [
+                item for item in vector_items
+                if self._get_vector_metadata(item).get("dept") == dept_code
+            ]
+
+            for item in dept_items:
+                item_id = self._make_vector_item_id(item)
+
+                if item_id in used_ids:
+                    continue
+
+                selected.append(item)
+                used_ids.add(item_id)
+
+                if len(selected) >= max_docs:
+                    return selected
+
+                break
+
+        # 부족하면 상위 결과로 보충
+        for item in vector_items:
+            item_id = self._make_vector_item_id(item)
+
+            if item_id in used_ids:
+                continue
+
+            selected.append(item)
+            used_ids.add(item_id)
+
+            if len(selected) >= max_docs:
+                break
+
+        return selected
+
+    def _make_vector_item_id(self, item: Any) -> str:
+        metadata = self._get_vector_metadata(item)
+
+        return "|".join(
+            [
+                str(metadata.get("content_hash", "")),
+                str(metadata.get("source_type", "")),
+                str(metadata.get("dept", "")),
+                str(metadata.get("title", "")),
+                self._get_vector_page_content(item)[:200],
+            ]
+        )
+
+    # ------------------------------------------------------------
+    # warnings / evidence
+    # ------------------------------------------------------------
+
+    def _build_warnings(
+        self,
+        analysis: QueryAnalysis,
+        sql_result: Any | None,
+        vector_result: Any | None,
+        sql_rows: list[dict[str, Any]],
+        vector_items: list[Any],
+    ) -> list[str]:
+        warnings: list[str] = []
+
+        warnings.extend(self._extract_warnings(sql_result))
+        warnings.extend(self._extract_warnings(vector_result))
+
+        if analysis.intent == "requirement_info" and not sql_rows:
+            warnings.append(
+                "현재 SQL 데이터에는 졸업/수료/이수/논문 요건에 대한 직접 근거가 없습니다."
+            )
+
+        if analysis.intent == "department_homepage_info" and not sql_rows:
+            warnings.append(
+                "department_homepage 테이블에서 학과별 대표 홈페이지 정보를 찾지 못했습니다."
+            )
+
+        if analysis.intent == "course_info":
+            if analysis.department_code == "ai_systems" and not sql_rows and not vector_items:
+                warnings.append(
+                    "현재 데이터에는 AI시스템학과 교과목 정보가 부족합니다."
+                )
+
+        if vector_result is not None:
+            used_fallback = self._get_attr_or_key(vector_result, "used_fallback", False)
+
+            if used_fallback:
+                warnings.append(
+                    "Vector 검색에서 fallback 결과가 포함되었습니다. "
+                    "fallback 문서는 질문의 직접 근거인지 주의해서 사용해야 합니다."
+                )
+
+        return self._unique_non_empty([str(w) for w in warnings if w])
+
+    def _extract_warnings(self, obj: Any | None) -> list[str]:
+        if obj is None:
+            return []
+
+        if isinstance(obj, dict):
+            warnings = obj.get("warnings") or []
+            return [str(w) for w in warnings if w]
+
+        warnings = getattr(obj, "warnings", [])
+
+        return [str(w) for w in warnings if w]
+
+    def _has_direct_evidence(
+        self,
+        analysis: QueryAnalysis,
+        sql_rows: list[dict[str, Any]],
+        vector_items: list[Any],
+    ) -> bool:
+        if analysis.intent in {
+            "course_info",
+            "person_info",
+            "office_contact_info",
+            "asset_or_link_info",
+            "department_homepage_info",
+            "requirement_info",
+            "kaist_profile_info",
+            "kaist_statistics_info",
+            "kaist_link_info",
+        }:
+            return len(sql_rows) > 0
+
+        if analysis.intent in {"admission_info", "event_info"}:
+            return len(sql_rows) > 0 or len(vector_items) > 0
+
+        if analysis.intent == "comparison_info":
+            if not vector_items:
+                return False
+
+            target_depts = analysis.department_codes or []
+
+            if not target_depts:
+                return len(vector_items) > 0
+
+            found_depts = {
+                self._get_vector_metadata(item).get("dept")
+                for item in vector_items
+            }
+
+            return all(dept in found_depts for dept in target_depts)
+
+        if analysis.intent == "recommendation_info":
+            if not vector_items:
+                return False
+
+            found_depts = {
+                self._get_vector_metadata(item).get("dept")
+                for item in vector_items
+                if self._get_vector_metadata(item).get("dept")
+            }
+
+            return len(found_depts) >= 2
+
+        if analysis.intent == "department_overview":
+            if not vector_items:
+                return False
+
+            if analysis.department_code:
+                return any(
+                    self._get_vector_metadata(item).get("dept") == analysis.department_code
+                    for item in vector_items
+                )
+
+            return len(vector_items) > 0
+
+        return bool(sql_rows or vector_items)
+
+    # ------------------------------------------------------------
+    # formatting
+    # ------------------------------------------------------------
+
+    def _format_warning_section(self, warnings: list[str]) -> str:
+        lines = ["[주의 / 검색 상태]"]
+
+        for warning in warnings:
+            lines.append(f"- {warning}")
 
         return "\n".join(lines)
 
-    def _get_sql_columns(
+    def _format_analysis_section(
         self,
-        sql_result: SqlQueryResult,
-    ) -> list[str]:
-        if sql_result.columns:
-            return sql_result.columns
+        question: str,
+        analysis: QueryAnalysis,
+        has_direct_evidence: bool,
+    ) -> str:
+        lines = [
+            "[질문 분석]",
+            f"원 질문: {question}",
+            f"정규화 질문: {analysis.normalized_question}",
+            f"route: {analysis.route}",
+            f"intent: {analysis.intent}",
+            f"intent 설명: {analysis.intent_description}",
+            f"content_type: {analysis.content_type}",
+            f"department_code: {analysis.department_code}",
+            f"department_name: {analysis.department_name}",
+            f"department_codes: {analysis.department_codes}",
+            f"department_names: {analysis.department_names}",
+            f"has_direct_evidence: {has_direct_evidence}",
+        ]
 
-        ordered_columns = []
+        if analysis.rewritten_question:
+            lines.append(f"검색용 질문: {analysis.rewritten_question}")
 
-        for row in sql_result.rows:
-            for key in row.keys():
-                if key not in ordered_columns:
-                    ordered_columns.append(key)
+        return "\n".join(lines)
 
-        return ordered_columns
-
-    def _safe_cell(self, value: Any) -> str:
-        if value is None:
+    def _format_sql_section(
+        self,
+        rows: list[dict[str, Any]],
+        table_name: str | None,
+        total_row_count: int,
+    ) -> str:
+        if not rows:
             return ""
 
-        text = str(value)
-        text = text.replace("\n", " ").replace("|", "/")
+        lines = [
+            "[SQL 정형 데이터 근거]",
+            f"table: {table_name or 'unknown'}",
+            f"selected_rows: {len(rows)} / total_rows: {total_row_count}",
+        ]
 
-        return text.strip()
+        for idx, row in enumerate(rows, start=1):
+            lines.append(f"\nSQL_ROW_{idx}")
+            lines.append(self._format_sql_row(row))
 
-    def _collect_warnings(
+        return "\n".join(lines)
+
+    def _format_sql_row(self, row: dict[str, Any]) -> str:
+        priority_keys = [
+            "dept",
+            "dept_name",
+            "name",
+            "name_ko",
+            "name_en",
+            "role",
+            "role_normalized",
+            "email",
+            "phone",
+            "office",
+            "homepage",
+            "course_code",
+            "course_name",
+            "course_type",
+            "credit",
+            "course_description",
+            "admission_type",
+            "admission_type_norm",
+            "title",
+            "content",
+            "schedule_date",
+            "min_gpa",
+            "event_date",
+            "summary",
+            "homepage_url",
+            "admission_url",
+            "faculty_url",
+            "curriculum_url",
+            "program_name",
+            "website",
+            "building_location",
+            "item",
+            "value_raw",
+            "value_number",
+            "url",
+            "source_url",
+            "source",
+        ]
+
+        lines: list[str] = []
+
+        used_keys: set[str] = set()
+
+        for key in priority_keys:
+            value = row.get(key)
+
+            if self._is_empty(value):
+                continue
+
+            lines.append(f"- {key}: {value}")
+            used_keys.add(key)
+
+        # priority에 없는 주요 값도 일부 포함
+        for key, value in row.items():
+            if key in used_keys:
+                continue
+
+            if self._is_empty(value):
+                continue
+
+            if key.endswith("_id") or key in {"missing_fields", "crawled_at", "source_sheet"}:
+                continue
+
+            lines.append(f"- {key}: {value}")
+
+            if len(lines) >= 25:
+                break
+
+        return "\n".join(lines)
+
+    def _format_vector_section(
         self,
-        vector_result: Any | None,
-        sql_result: SqlQueryResult | None,
-    ) -> list[str]:
-        warnings = []
+        vector_items: list[Any],
+        total_doc_count: int,
+    ) -> str:
+        if not vector_items:
+            return ""
 
-        if vector_result:
-            warnings.extend(vector_result.warnings)
+        lines = [
+            "[Vector 문서 근거]",
+            f"selected_docs: {len(vector_items)} / total_docs: {total_doc_count}",
+        ]
 
-            if vector_result.used_fallback:
-                warnings.append(
-                    "Vector 검색에서 fallback이 사용되었습니다. "
-                    "일부 문서는 원 질문의 문서유형과 다를 수 있습니다."
-                )
+        for idx, item in enumerate(vector_items, start=1):
+            metadata = self._get_vector_metadata(item)
+            content = self._get_vector_page_content(item)
+            score = self._get_vector_score(item)
+            stage = self._get_vector_stage(item)
 
-        if sql_result:
-            warnings.extend(sql_result.warnings)
+            content = content[: self.config.max_vector_chars_per_doc]
 
-        return self._deduplicate_strings(warnings)
+            lines.append(f"\nVECTOR_DOC_{idx}")
+            lines.append(f"- search_stage: {stage}")
+            lines.append(f"- score: {score}")
+            lines.append(f"- dept: {metadata.get('dept')}")
+            lines.append(f"- dept_name: {metadata.get('dept_name')}")
+            lines.append(f"- source_type: {metadata.get('source_type')}")
+            lines.append(f"- content_type: {metadata.get('content_type')}")
+            lines.append(f"- title: {metadata.get('title')}")
+            lines.append(f"- source: {metadata.get('source') or metadata.get('source_url') or metadata.get('url')}")
+            lines.append("[content]")
+            lines.append(content)
 
-    def _collect_sources(
+        return "\n".join(lines)
+
+    # ------------------------------------------------------------
+    # sources
+    # ------------------------------------------------------------
+
+    def _build_sources(
         self,
-        vector_result: Any | None,
-        sql_result: SqlQueryResult | None,
-    ) -> list[SourceItem]:
-        sources = []
+        sql_rows: list[dict[str, Any]],
+        sql_table_name: str | None,
+        vector_items: list[Any],
+    ) -> list[dict[str, Any]]:
+        sources: list[SourceItem] = []
 
-        if vector_result:
-            for item in vector_result.results[: self.config.max_vector_docs]:
-                sources.append(
-                    self._source_from_vector_item(item)
-                )
-
-        if sql_result and not sql_result.is_empty():
+        for row in sql_rows:
             sources.append(
                 SourceItem(
                     source_type="sql",
-                    title=sql_result.table_name,
-                    source=sql_result.table_name,
+                    title=self._make_sql_source_title(row, sql_table_name),
+                    source=self._make_sql_source_url(row),
+                    department=row.get("dept_name") or row.get("dept"),
+                    content_type=sql_table_name,
                     metadata={
-                        "table_name": sql_result.table_name,
-                        "conditions": sql_result.conditions,
-                        "row_count": len(sql_result.rows),
+                        "table_name": sql_table_name,
+                        **row,
                     },
                 )
             )
 
-        return self._deduplicate_sources(sources)
+        for item in vector_items:
+            metadata = self._get_vector_metadata(item)
 
-    def _source_from_vector_item(
+            sources.append(
+                SourceItem(
+                    source_type="vector",
+                    title=str(metadata.get("title") or "Vector document"),
+                    source=str(
+                        metadata.get("source")
+                        or metadata.get("source_url")
+                        or metadata.get("url")
+                        or ""
+                    ),
+                    department=metadata.get("dept_name") or metadata.get("dept"),
+                    content_type=metadata.get("content_type"),
+                    metadata=dict(metadata),
+                )
+            )
+
+        return self._deduplicate_sources([source.to_dict() for source in sources])
+
+    def _make_sql_source_title(
         self,
-        item: Any,
-    ) -> SourceItem:
-        metadata = item.document.metadata
+        row: dict[str, Any],
+        table_name: str | None,
+    ) -> str:
+        for key in [
+            "title",
+            "dept_name",
+            "name",
+            "course_name",
+            "program_name",
+            "link_name",
+            "item",
+            "homepage_url",
+            "url",
+        ]:
+            value = row.get(key)
 
-        return SourceItem(
-            source_type="vector",
-            title=str(metadata.get("title") or ""),
-            source=str(
-                metadata.get("source_url")
-                or metadata.get("source")
-                or metadata.get("url")
-                or ""
-            ),
-            department=str(metadata.get("dept_name") or metadata.get("department") or ""),
-            content_type=str(metadata.get("content_type") or metadata.get("doc_type") or ""),
-            metadata={
-                "search_stage": item.search_stage,
-                "score": item.score,
-                "rerank_score": item.rerank_score,
-                "dept": metadata.get("dept"),
-                "content_type": metadata.get("content_type"),
-                "crawled_at": metadata.get("crawled_at"),
-                "page": metadata.get("page"),
-                "file_name": metadata.get("file_name"),
-                "section": metadata.get("section"),
-                "chunk_index": metadata.get("chunk_index"),
-                "source_url": metadata.get("source_url"),
-            },
-        )
+            if not self._is_empty(value):
+                return str(value)
 
-    def _deduplicate_strings(
-        self,
-        values: list[str],
-    ) -> list[str]:
-        seen = set()
-        results = []
+        return str(table_name or "SQL source")
 
-        for value in values:
-            if not value:
-                continue
+    def _make_sql_source_url(self, row: dict[str, Any]) -> str:
+        for key in [
+            "source_url",
+            "homepage_url",
+            "url",
+            "website",
+            "homepage",
+            "admission_url",
+            "faculty_url",
+            "curriculum_url",
+        ]:
+            value = row.get(key)
 
-            if value in seen:
-                continue
+            if not self._is_empty(value):
+                return str(value)
 
-            seen.add(value)
-            results.append(value)
-
-        return results
+        return ""
 
     def _deduplicate_sources(
         self,
-        sources: list[SourceItem],
-    ) -> list[SourceItem]:
-        seen = set()
-        results = []
+        sources: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        deduped: list[dict[str, Any]] = []
+        seen: set[str] = set()
 
         for source in sources:
-            key = (
-                source.source_type,
-                source.title,
-                source.source,
-                source.department,
-                source.content_type,
-                source.metadata.get("page"),
-                source.metadata.get("chunk_index"),
+            key = "|".join(
+                [
+                    str(source.get("source_type", "")),
+                    str(source.get("title", "")),
+                    str(source.get("source", "")),
+                    str(source.get("department", "")),
+                    str(source.get("content_type", "")),
+                ]
             )
 
             if key in seen:
                 continue
 
             seen.add(key)
-            results.append(source)
+            deduped.append(source)
 
-        return results
+        return deduped
 
-    def _limit_context(self, context: str) -> str:
-        if self.config.max_total_context_chars <= 0:
-            return context
+    # ------------------------------------------------------------
+    # misc
+    # ------------------------------------------------------------
 
-        if len(context) <= self.config.max_total_context_chars:
-            return context
+    def _truncate_context(self, context_text: str) -> str:
+        if len(context_text) <= self.config.max_total_context_chars:
+            return context_text
+
+        truncated = context_text[: self.config.max_total_context_chars]
 
         return (
-            context[: self.config.max_total_context_chars]
-            .rstrip()
-            + "\n...[전체 context 길이 제한으로 중략]"
+            truncated
+            + "\n\n[TRUNCATED]\n"
+            + "context가 길어 일부 내용이 잘렸습니다. 답변은 남아 있는 근거 안에서만 작성해야 합니다."
         )
 
+    def _unique_non_empty(self, values: list[str]) -> list[str]:
+        result: list[str] = []
+        seen: set[str] = set()
+
+        for value in values:
+            value = str(value).strip()
+
+            if not value:
+                continue
+
+            if value in {"None", "nan", "NaN"}:
+                continue
+
+            if value in seen:
+                continue
+
+            seen.add(value)
+            result.append(value)
+
+        return result
+
+    def _is_empty(self, value: Any) -> bool:
+        if value is None:
+            return True
+
+        text = str(value).strip()
+
+        return text == "" or text.lower() in {"none", "nan", "null", "n/a", "na"}
+
+
+# ============================================================
+# 3. 수동 테스트
+# ============================================================
+
+if __name__ == "__main__":
+    from src.rag.query_analyzer import QuestionAnalyzer
+
+    analyzer = QuestionAnalyzer()
+    analysis = analyzer.analyze("AI대학 학과별 홈페이지 URL을 정리해줘.")
+
+    mock_sql_result = {
+        "table_name": "department_homepage",
+        "rows": [
+            {
+                "dept": "aic",
+                "dept_name": "AI컴퓨팅학과",
+                "homepage_url": "https://aic.kaist.ac.kr/",
+                "source": "manual_seed",
+            },
+            {
+                "dept": "ai_systems",
+                "dept_name": "AI시스템학과",
+                "homepage_url": "https://ai-systems.kaist.ac.kr/",
+                "source": "manual_seed",
+            },
+        ],
+        "warnings": [],
+    }
+
+    builder = ContextBuilder()
+    built_context = builder.build(
+        question="AI대학 학과별 홈페이지 URL을 정리해줘.",
+        analysis=analysis,
+        sql_result=mock_sql_result,
+        vector_result=None,
+    )
+
+    print(built_context.context_text)
+    print("\n[SOURCES]")
+    print(json.dumps(built_context.sources, ensure_ascii=False, indent=2))

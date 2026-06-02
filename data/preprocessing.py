@@ -1,16 +1,19 @@
 # ============================================================
-# KAIST 대학원 RAG Agent용 14개 파일 전처리 코드
+# KAIST 대학원 RAG Agent용 전처리 코드
 # - SQL 적재용 CSV 생성
-# - VectorStore 적재용 JSON 생성
+# - VectorStore 적재용 JSON / JSONL 생성
+# - PDF 본문 추출
+# - PDF 실패 시 attachments.text_preview fallback
+# - vector 문서 품질 리포트 생성
 # ============================================================
 
-# 필요 패키지
-# !pip install pandas pymupdf
+from __future__ import annotations
 
-import re
-import json
 import hashlib
+import json
+import re
 from pathlib import Path
+from typing import Any
 
 import pandas as pd
 
@@ -22,17 +25,15 @@ import pandas as pd
 CURRENT_FILE = Path(__file__).resolve()
 PROJECT_ROOT = CURRENT_FILE.parents[1]
 
-# 입력 원본 데이터
 RAW_DATA_DIR = PROJECT_ROOT / "data" / "raw_data"
 
-# 전처리 결과 저장 경로
 PROCESSED_DIR = PROJECT_ROOT / "data" / "processed"
 SQL_DIR = PROCESSED_DIR / "csv"
 VECTOR_DIR = PROCESSED_DIR / "json"
 REPORT_DIR = PROCESSED_DIR / "reports"
 
-for d in [SQL_DIR, VECTOR_DIR, REPORT_DIR]:
-    d.mkdir(parents=True, exist_ok=True)
+for directory in [SQL_DIR, VECTOR_DIR, REPORT_DIR]:
+    directory.mkdir(parents=True, exist_ok=True)
 
 
 CSV_FILES = {
@@ -92,17 +93,21 @@ PDF_FILES = {
 NULL_LIKE = {"", "nan", "none", "null", "na", "n/a", "-", "—"}
 
 
-def is_empty(value) -> bool:
+def is_empty(value: Any) -> bool:
     if value is None:
         return True
-    if pd.isna(value):
-        return True
+
+    try:
+        if pd.isna(value):
+            return True
+    except Exception:
+        pass
+
     text = str(value).strip()
     return text.lower() in NULL_LIKE
 
 
-def clean_scalar(value):
-    """셀 하나 정리"""
+def clean_scalar(value: Any) -> str | None:
     if is_empty(value):
         return None
 
@@ -120,12 +125,11 @@ def clean_scalar(value):
 
 
 def clean_dataframe(df: pd.DataFrame) -> pd.DataFrame:
-    """CSV 공통 정리: 컬럼명 정리, 공백 정리, 완전 빈 행 제거"""
     df = df.copy()
 
     df.columns = [
-        clean_scalar(col) if clean_scalar(col) else f"unnamed_{i}"
-        for i, col in enumerate(df.columns)
+        clean_scalar(col) if clean_scalar(col) else f"unnamed_{idx}"
+        for idx, col in enumerate(df.columns)
     ]
 
     for col in df.columns:
@@ -143,52 +147,56 @@ def read_csv_clean(path: Path) -> pd.DataFrame:
     return clean_dataframe(df)
 
 
-def save_csv(df: pd.DataFrame, path: Path):
+def save_csv(df: pd.DataFrame, path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     df.to_csv(path, index=False, encoding="utf-8-sig")
 
 
-def make_hash(*parts, length=16) -> str:
-    raw = "||".join("" if p is None else str(p) for p in parts)
+def make_hash(*parts: Any, length: int = 16) -> str:
+    raw = "||".join("" if part is None else str(part) for part in parts)
     return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:length]
 
 
-def row_value(row, col):
+def row_value(row: pd.Series, col: str) -> str | None:
     if col not in row:
         return None
+
     value = row[col]
     return None if is_empty(value) else str(value).strip()
 
 
-def recompute_missing_fields(df: pd.DataFrame, exclude=("missing_fields",)) -> pd.DataFrame:
-    """기존 missing_fields가 틀린 경우가 있어 실제 값 기준으로 다시 계산"""
+def recompute_missing_fields(
+    df: pd.DataFrame,
+    exclude: tuple[str, ...] = ("missing_fields",),
+) -> pd.DataFrame:
     df = df.copy()
-    target_cols = [c for c in df.columns if c not in exclude]
+    target_cols = [col for col in df.columns if col not in exclude]
 
     missing_values = []
+
     for _, row in df.iterrows():
-        missing = [c for c in target_cols if is_empty(row.get(c))]
+        missing = [col for col in target_cols if is_empty(row.get(col))]
         missing_values.append(", ".join(missing) if missing else None)
 
     df["missing_fields"] = missing_values
     return df
 
 
-def normalize_email(value):
+def normalize_email(value: Any) -> str | None:
     if is_empty(value):
         return None
 
     text = str(value).strip()
-    text = text.replace("mailto:", "")
-    text = text.replace("MAILTO:", "")
-    text = text.strip()
+    text = text.replace("mailto:", "").replace("MAILTO:", "").strip()
 
-    # 이메일만 추출
-    match = re.search(r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}", text)
+    match = re.search(
+        r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}",
+        text,
+    )
     return match.group(0) if match else text
 
 
-def normalize_course_code(value):
+def normalize_course_code(value: Any) -> str | None:
     if is_empty(value):
         return None
 
@@ -197,29 +205,30 @@ def normalize_course_code(value):
     return text.upper() if text else None
 
 
-def normalize_date_yyyy_mm_dd(value):
+def normalize_date_yyyy_mm_dd(value: Any) -> str | None:
     if is_empty(value):
         return None
 
     text = str(value).strip()
 
-    # 이미 YYYY-MM-DD인 경우
     if re.fullmatch(r"\d{4}-\d{2}-\d{2}", text):
         return text
 
-    # 2026. 03. 27 같은 형식
-    m = re.search(r"(20\d{2})\s*[.\-/]\s*(\d{1,2})\s*[.\-/]\s*(\d{1,2})", text)
-    if m:
-        y, mo, d = m.groups()
-        return f"{int(y):04d}-{int(mo):02d}-{int(d):02d}"
+    match = re.search(
+        r"(20\d{2})\s*[.\-/]\s*(\d{1,2})\s*[.\-/]\s*(\d{1,2})",
+        text,
+    )
+
+    if match:
+        year, month, day = match.groups()
+        return f"{int(year):04d}-{int(month):02d}-{int(day):02d}"
 
     return None
 
 
-def extract_min_gpa(*values):
-    joined = " ".join(str(v) for v in values if not is_empty(v))
+def extract_min_gpa(*values: Any) -> str | None:
+    joined = " ".join(str(value) for value in values if not is_empty(value))
 
-    # 3.7 같은 값이 학점 조건으로 들어간 경우
     patterns = [
         r"평점평균.{0,20}?(\d\.\d)",
         r"누적\s*평점.{0,20}?(\d\.\d)",
@@ -227,29 +236,34 @@ def extract_min_gpa(*values):
         r"(\d\.\d)\s*이상",
     ]
 
-    for pat in patterns:
-        m = re.search(pat, joined, flags=re.IGNORECASE)
-        if m:
-            return m.group(1)
+    for pattern in patterns:
+        match = re.search(pattern, joined, flags=re.IGNORECASE)
+        if match:
+            return match.group(1)
 
     return None
 
 
-def make_vector_doc(text: str, metadata: dict, doc_id_seed=None):
+def make_vector_doc(
+    text: str,
+    metadata: dict[str, Any],
+    doc_id_seed: Any = None,
+) -> dict[str, Any] | None:
     text = clean_scalar(text)
+
     if not text:
         return None
 
-    metadata = {
-        k: (None if is_empty(v) else v)
-        for k, v in metadata.items()
+    cleaned_metadata = {
+        key: (None if is_empty(value) else value)
+        for key, value in metadata.items()
     }
 
     doc_id = make_hash(
-        doc_id_seed or metadata.get("source_type"),
-        metadata.get("dept"),
-        metadata.get("title"),
-        metadata.get("page"),
+        doc_id_seed or cleaned_metadata.get("source_type"),
+        cleaned_metadata.get("dept"),
+        cleaned_metadata.get("title"),
+        cleaned_metadata.get("page"),
         text[:300],
         length=20,
     )
@@ -257,18 +271,29 @@ def make_vector_doc(text: str, metadata: dict, doc_id_seed=None):
     return {
         "id": doc_id,
         "text": text,
-        "metadata": metadata,
+        "metadata": cleaned_metadata,
     }
 
 
-def add_doc(docs, text, metadata, doc_id_seed=None):
+def add_doc(
+    docs: list[dict[str, Any]],
+    text: str,
+    metadata: dict[str, Any],
+    doc_id_seed: Any = None,
+) -> None:
     doc = make_vector_doc(text, metadata, doc_id_seed=doc_id_seed)
+
     if doc:
         docs.append(doc)
 
 
-def chunk_text_by_paragraphs(text, max_chars=1200, overlap_chars=120):
+def chunk_text_by_paragraphs(
+    text: str,
+    max_chars: int = 1200,
+    overlap_chars: int = 120,
+) -> list[str]:
     text = clean_scalar(text)
+
     if not text:
         return []
 
@@ -276,37 +301,39 @@ def chunk_text_by_paragraphs(text, max_chars=1200, overlap_chars=120):
         return [text]
 
     paragraphs = re.split(r"\n\s*\n", text)
-    chunks = []
+    chunks: list[str] = []
     current = ""
 
-    for para in paragraphs:
-        para = para.strip()
-        if not para:
+    for paragraph in paragraphs:
+        paragraph = paragraph.strip()
+
+        if not paragraph:
             continue
 
-        candidate = current + "\n\n" + para if current else para
+        candidate = current + "\n\n" + paragraph if current else paragraph
 
         if len(candidate) <= max_chars:
             current = candidate
-        else:
-            if current:
-                chunks.append(current.strip())
+            continue
 
-            # 너무 긴 문단은 강제 분할
-            if len(para) > max_chars:
-                start = 0
-                while start < len(para):
-                    end = start + max_chars
-                    chunks.append(para[start:end].strip())
-                    start = end - overlap_chars
-                    if start < 0:
-                        start = 0
-                    if start >= len(para):
-                        break
-                current = ""
-            else:
-                overlap = current[-overlap_chars:] if current else ""
-                current = (overlap + "\n\n" + para).strip() if overlap else para
+        if current:
+            chunks.append(current.strip())
+
+        if len(paragraph) > max_chars:
+            start = 0
+
+            while start < len(paragraph):
+                end = start + max_chars
+                chunks.append(paragraph[start:end].strip())
+
+                next_start = end - overlap_chars
+                if next_start <= start:
+                    next_start = end
+
+                start = next_start
+        else:
+            overlap = current[-overlap_chars:] if current else ""
+            current = (overlap + "\n\n" + paragraph).strip() if overlap else paragraph
 
     if current:
         chunks.append(current.strip())
@@ -314,11 +341,19 @@ def chunk_text_by_paragraphs(text, max_chars=1200, overlap_chars=120):
     return chunks
 
 
+def safe_get_df(dfs: dict[str, pd.DataFrame], key: str) -> pd.DataFrame:
+    if key not in dfs:
+        return pd.DataFrame()
+
+    return dfs[key].copy()
+
+
 # ============================================================
 # 2. CSV 로드
 # ============================================================
 
-dfs = {}
+dfs: dict[str, pd.DataFrame] = {}
+
 for key, filename in CSV_FILES.items():
     path = RAW_DATA_DIR / filename
     dfs[key] = read_csv_clean(path)
@@ -333,7 +368,7 @@ for key, filename in CSV_FILES.items():
 # 3-1. admissions
 # ------------------------------------------------------------
 
-admissions = dfs["admissions"].copy()
+admissions = safe_get_df(dfs, "admissions")
 
 type_map = {
     "admission_eligibility": "eligibility",
@@ -344,13 +379,22 @@ type_map = {
     "admission_info": "general_info",
 }
 
-admissions["admission_type_norm"] = admissions["admission_type"].map(
-    lambda x: type_map.get(x, x)
-)
+if "admission_type" in admissions.columns:
+    admissions["admission_type_norm"] = admissions["admission_type"].map(
+        lambda value: type_map.get(value, value)
+    )
+else:
+    admissions["admission_type_norm"] = None
 
-# schedule_date에 3.7 같은 학점값이 들어간 경우 분리
-admissions["schedule_date_raw"] = admissions.get("schedule_date")
-admissions["schedule_date"] = admissions["schedule_date_raw"].map(normalize_date_yyyy_mm_dd)
+if "schedule_date" in admissions.columns:
+    admissions["schedule_date_raw"] = admissions["schedule_date"]
+else:
+    admissions["schedule_date_raw"] = None
+    admissions["schedule_date"] = None
+
+admissions["schedule_date"] = admissions["schedule_date_raw"].map(
+    normalize_date_yyyy_mm_dd
+)
 
 admissions["min_gpa"] = admissions.apply(
     lambda row: extract_min_gpa(
@@ -379,8 +423,12 @@ save_csv(admissions, SQL_DIR / "admissions.csv")
 # 3-2. courses
 # ------------------------------------------------------------
 
-courses = dfs["courses"].copy()
-courses["course_code_norm"] = courses["course_code"].map(normalize_course_code)
+courses = safe_get_df(dfs, "courses")
+
+if "course_code" in courses.columns:
+    courses["course_code_norm"] = courses["course_code"].map(normalize_course_code)
+else:
+    courses["course_code_norm"] = None
 
 courses["course_id"] = courses.apply(
     lambda row: row.get("record_id") or make_hash(
@@ -391,10 +439,17 @@ courses["course_id"] = courses.apply(
     axis=1,
 )
 
-courses = courses.drop_duplicates(
-    subset=["dept", "course_code_norm", "course_name", "course_type"],
-    keep="first",
-).reset_index(drop=True)
+course_dedup_cols = [
+    col
+    for col in ["dept", "course_code_norm", "course_name", "course_type"]
+    if col in courses.columns
+]
+
+if course_dedup_cols:
+    courses = courses.drop_duplicates(
+        subset=course_dedup_cols,
+        keep="first",
+    ).reset_index(drop=True)
 
 courses = recompute_missing_fields(courses)
 save_csv(courses, SQL_DIR / "courses.csv")
@@ -404,8 +459,14 @@ save_csv(courses, SQL_DIR / "courses.csv")
 # 3-3. course_track_map
 # ------------------------------------------------------------
 
-course_track_map = dfs["course_track_map"].copy()
-course_track_map["course_code_norm"] = course_track_map["course_code"].map(normalize_course_code)
+course_track_map = safe_get_df(dfs, "course_track_map")
+
+if "course_code" in course_track_map.columns:
+    course_track_map["course_code_norm"] = course_track_map["course_code"].map(
+        normalize_course_code
+    )
+else:
+    course_track_map["course_code_norm"] = None
 
 course_track_map["course_track_id"] = course_track_map.apply(
     lambda row: make_hash(
@@ -417,10 +478,17 @@ course_track_map["course_track_id"] = course_track_map.apply(
     axis=1,
 )
 
-course_track_map = course_track_map.drop_duplicates(
-    subset=["dept", "course_code_norm", "course_name", "track_name"],
-    keep="first",
-).reset_index(drop=True)
+track_dedup_cols = [
+    col
+    for col in ["dept", "course_code_norm", "course_name", "track_name"]
+    if col in course_track_map.columns
+]
+
+if track_dedup_cols:
+    course_track_map = course_track_map.drop_duplicates(
+        subset=track_dedup_cols,
+        keep="first",
+    ).reset_index(drop=True)
 
 course_track_map = recompute_missing_fields(course_track_map)
 save_csv(course_track_map, SQL_DIR / "course_track_map.csv")
@@ -430,9 +498,16 @@ save_csv(course_track_map, SQL_DIR / "course_track_map.csv")
 # 3-4. people
 # ------------------------------------------------------------
 
-people = dfs["people"].copy()
+people = safe_get_df(dfs, "people")
 
-people["email"] = people["email"].map(normalize_email)
+if "email" in people.columns:
+    people["email"] = people["email"].map(normalize_email)
+else:
+    people["email"] = None
+
+if "role_normalized" not in people.columns:
+    people["role_normalized"] = None
+
 people["role_normalized"] = people.apply(
     lambda row: row.get("role_normalized") or row.get("role"),
     axis=1,
@@ -448,10 +523,17 @@ people["person_id"] = people.apply(
     axis=1,
 )
 
-people = people.drop_duplicates(
-    subset=["dept", "name", "email", "homepage"],
-    keep="first",
-).reset_index(drop=True)
+people_dedup_cols = [
+    col
+    for col in ["dept", "name", "email", "homepage"]
+    if col in people.columns
+]
+
+if people_dedup_cols:
+    people = people.drop_duplicates(
+        subset=people_dedup_cols,
+        keep="first",
+    ).reset_index(drop=True)
 
 people = recompute_missing_fields(people)
 save_csv(people, SQL_DIR / "people.csv")
@@ -461,8 +543,12 @@ save_csv(people, SQL_DIR / "people.csv")
 # 3-5. events
 # ------------------------------------------------------------
 
-events = dfs["events"].copy()
-events["event_date"] = events["event_date"].map(normalize_date_yyyy_mm_dd)
+events = safe_get_df(dfs, "events")
+
+if "event_date" in events.columns:
+    events["event_date"] = events["event_date"].map(normalize_date_yyyy_mm_dd)
+else:
+    events["event_date"] = None
 
 events["event_id"] = events.apply(
     lambda row: row.get("record_id") or make_hash(
@@ -481,7 +567,7 @@ save_csv(events, SQL_DIR / "events.csv")
 # 3-6. assets
 # ------------------------------------------------------------
 
-assets = dfs["assets"].copy()
+assets = safe_get_df(dfs, "assets")
 
 assets["asset_id"] = assets.apply(
     lambda row: make_hash(
@@ -494,8 +580,6 @@ assets["asset_id"] = assets.apply(
     axis=1,
 )
 
-# vectorstore 후보 여부
-# image만 있는 행은 SQL에는 남기되 vectorstore에는 넣지 않음
 VECTOR_ASSET_TYPES = {
     "contact_info",
     "link",
@@ -523,7 +607,7 @@ save_csv(assets, SQL_DIR / "assets.csv")
 # 3-7. attachments
 # ------------------------------------------------------------
 
-attachments = dfs["attachments"].copy()
+attachments = safe_get_df(dfs, "attachments")
 
 attachments["attachment_id"] = attachments.apply(
     lambda row: make_hash(
@@ -534,10 +618,7 @@ attachments["attachment_id"] = attachments.apply(
     axis=1,
 )
 
-# text_preview는 일부 미리보기라 vectorstore용 원문으로 쓰지 않음
 attachments["use_text_preview_for_vectorstore"] = False
-
-# 실제 업로드된 PDF를 별도 추출해서 vectorstore에 넣을 예정
 attachments["note"] = "PDF 원문은 업로드된 PDF 파일에서 직접 추출. text_preview는 부분 미리보기라 vectorstore 제외."
 
 attachments = recompute_missing_fields(attachments)
@@ -548,9 +629,7 @@ save_csv(attachments, SQL_DIR / "attachments.csv")
 # 3-8. quality_report
 # ------------------------------------------------------------
 
-# 품질 리포트는 전처리할 필요 없음.
-# RAG 지식으로 쓰지 않고 관리/점검용 SQL 테이블로만 그대로 저장.
-quality_report = dfs["quality_report"].copy()
+quality_report = safe_get_df(dfs, "quality_report")
 save_csv(quality_report, SQL_DIR / "quality_report.csv")
 
 
@@ -558,99 +637,115 @@ save_csv(quality_report, SQL_DIR / "quality_report.csv")
 # 3-9. KAIST 기본정보
 # ------------------------------------------------------------
 
-basic = dfs["kaist_basic_info"].copy()
+basic = safe_get_df(dfs, "kaist_basic_info")
 basic = basic.dropna(how="all").reset_index(drop=True)
 
 kaist_home_url = None
+
 if "항목" in basic.columns and "내용" in basic.columns:
     url_rows = basic[basic["항목"] == "URL"]
+
     if len(url_rows) > 0:
         kaist_home_url = url_rows.iloc[0]["내용"]
 
-# 링크 정보
-kaist_links = basic[
-    basic["내용"].fillna("").str.contains(r"https?://", regex=True)
-].copy()
-kaist_links = kaist_links.rename(columns={"항목": "link_name", "내용": "url", "기타": "note"})
-kaist_links["source"] = "KAIST 공식홈페이지 조사"
+
+kaist_links = pd.DataFrame(columns=["link_name", "url", "note", "source"])
+
+if "내용" in basic.columns:
+    kaist_links = basic[
+        basic["내용"].fillna("").str.contains(r"https?://", regex=True)
+    ].copy()
+
+    kaist_links = kaist_links.rename(
+        columns={
+            "항목": "link_name",
+            "내용": "url",
+            "기타": "note",
+        }
+    )
+
+    for col in ["link_name", "url", "note"]:
+        if col not in kaist_links.columns:
+            kaist_links[col] = None
+
+    kaist_links["source"] = "KAIST 공식홈페이지 조사"
+    kaist_links = kaist_links[["link_name", "url", "note", "source"]]
+
 save_csv(kaist_links, SQL_DIR / "kaist_links.csv")
 
 
-# 통계 정보
-stat_rows = []
+stat_rows: list[dict[str, Any]] = []
 current_group = None
 stat_group_names = {"졸업생", "재학생", "교직원"}
 
-for _, row in basic.iterrows():
-    item = row.get("항목")
-    value = row.get("내용")
-    note = row.get("기타")
+if len(basic) > 0:
+    for _, row in basic.iterrows():
+        item = row.get("항목")
+        content = row.get("내용")
+        note = row.get("기타")
 
-    if is_empty(item) or is_empty(value):
-        continue
+        if item in stat_group_names:
+            current_group = item
+            continue
 
-    if item in stat_group_names:
-        current_group = item
-        stat_rows.append({
-            "stat_group": current_group,
-            "level": "전체",
-            "value_raw": value,
-            "value_number": re.sub(r"[^0-9]", "", value) or None,
-            "note": note,
-            "source": "KAIST 공식홈페이지 조사",
-        })
-    elif current_group and item in {"학사", "석사", "석박통합", "박사", "교수", "직원"}:
-        stat_rows.append({
-            "stat_group": current_group,
-            "level": item,
-            "value_raw": value,
-            "value_number": re.sub(r"[^0-9]", "", value) or None,
-            "note": note,
-            "source": "KAIST 공식홈페이지 조사",
-        })
+        if current_group and not is_empty(item):
+            value_raw = content
+            value_number = None
 
-kaist_statistics = pd.DataFrame(stat_rows)
+            if not is_empty(value_raw):
+                match = re.search(r"[\d,]+", str(value_raw))
+                if match:
+                    value_number = match.group(0).replace(",", "")
+
+            stat_rows.append({
+                "stat_group": current_group,
+                "level": item,
+                "value_raw": value_raw,
+                "value_number": value_number,
+                "note": note,
+                "source": "KAIST 공식홈페이지 조사",
+            })
+
+kaist_statistics = pd.DataFrame(
+    stat_rows,
+    columns=["stat_group", "level", "value_raw", "value_number", "note", "source"],
+)
 save_csv(kaist_statistics, SQL_DIR / "kaist_statistics.csv")
 
 
-# 프로필 정보
-stat_items = {"졸업생", "재학생", "교직원", "학사", "석사", "석박통합", "박사", "교수", "직원"}
-profile = basic.copy()
-profile = profile[~profile["항목"].isin(stat_items)]
-profile = profile[~profile["내용"].fillna("").str.contains(r"https?://", regex=True)]
-profile = profile.dropna(how="all").reset_index(drop=True)
-profile = profile.rename(columns={"항목": "item", "내용": "content", "기타": "note"})
-profile["source_url"] = kaist_home_url
-profile["source"] = "KAIST 공식홈페이지 조사"
+profile_rows: list[dict[str, Any]] = []
 
-save_csv(profile, SQL_DIR / "kaist_profile.csv")
+if len(basic) > 0:
+    for _, row in basic.iterrows():
+        item = row.get("항목")
+        content = row.get("내용")
+        note = row.get("기타")
+
+        if is_empty(item) and is_empty(content):
+            continue
+
+        profile_rows.append({
+            "item": item,
+            "content": content,
+            "note": note,
+            "source_url": kaist_home_url,
+            "source": "KAIST 공식홈페이지 조사",
+        })
+
+kaist_profile = pd.DataFrame(
+    profile_rows,
+    columns=["item", "content", "note", "source_url", "source"],
+)
+save_csv(kaist_profile, SQL_DIR / "kaist_profile.csv")
 
 
 # ------------------------------------------------------------
-# 3-10. 학과사무실
+# 3-10. department_offices
 # ------------------------------------------------------------
 
-office_raw_path = RAW_DATA_DIR / CSV_FILES["department_offices"]
-office_raw = pd.read_csv(office_raw_path, dtype=str, encoding="utf-8-sig")
+department_offices = safe_get_df(dfs, "department_offices")
 
-source_note = str(office_raw.columns[0]).strip()
-
-# 실제 헤더가 들어있는 행 찾기
-header_idx = None
-for idx, row in office_raw.iterrows():
-    first_value = clean_scalar(row.iloc[0])
-    if first_value == "학과/프로그램":
-        header_idx = idx
-        break
-
-if header_idx is None:
-    raise ValueError("학과사무실 파일에서 '학과/프로그램' 헤더 행을 찾지 못했습니다.")
-
-offices = office_raw.iloc[header_idx + 1:, :4].copy()
-offices.columns = ["program_name", "phone", "website", "building_location"]
-offices = clean_dataframe(offices)
-
-offices["office_id"] = offices.apply(
+department_offices["office_id"] = department_offices.apply(
     lambda row: make_hash(
         row.get("program_name"),
         row.get("phone"),
@@ -660,18 +755,25 @@ offices["office_id"] = offices.apply(
     axis=1,
 )
 
-offices["source"] = source_note
-offices["source_page"] = "p22-23"
+department_offices["source"] = department_offices.get(
+    "source",
+    "KAIST 공식홈페이지 조사",
+)
 
-offices = recompute_missing_fields(offices)
-save_csv(offices, SQL_DIR / "department_offices.csv")
+department_offices["source_page"] = department_offices.get(
+    "source_page",
+    kaist_home_url,
+)
+
+department_offices = recompute_missing_fields(department_offices)
+save_csv(department_offices, SQL_DIR / "department_offices.csv")
 
 
 # ============================================================
 # 4. VectorStore용 JSON 문서 생성
 # ============================================================
 
-vector_docs = []
+vector_docs: list[dict[str, Any]] = []
 
 
 # ------------------------------------------------------------
@@ -699,7 +801,7 @@ for _, row in admissions.iterrows():
     if row_value(row, "source_url"):
         lines.append(f"출처: {row_value(row, 'source_url')}")
 
-    text = "\n".join([x for x in lines if not x.endswith("None")])
+    text = "\n".join([line for line in lines if not line.endswith("None")])
 
     add_doc(
         vector_docs,
@@ -724,15 +826,20 @@ for _, row in admissions.iterrows():
 # 4-2. courses + course_track_map -> vector docs
 # ------------------------------------------------------------
 
-track_group = (
-    course_track_map
-    .groupby(["dept", "course_code_norm"], dropna=False)
-    .agg({
-        "track_name": lambda x: sorted(set(v for v in x if not is_empty(v))),
-        "course_description": lambda x: next((v for v in x if not is_empty(v)), None),
-    })
-    .reset_index()
-)
+if len(course_track_map) > 0 and {"dept", "course_code_norm"}.issubset(course_track_map.columns):
+    track_group = (
+        course_track_map
+        .groupby(["dept", "course_code_norm"], dropna=False)
+        .agg({
+            "track_name": lambda x: sorted(set(v for v in x if not is_empty(v))),
+            "course_description": lambda x: next((v for v in x if not is_empty(v)), None),
+        })
+        .reset_index()
+    )
+else:
+    track_group = pd.DataFrame(
+        columns=["dept", "course_code_norm", "track_name", "course_description"]
+    )
 
 courses_for_vector = courses.merge(
     track_group,
@@ -743,10 +850,12 @@ courses_for_vector = courses.merge(
 
 for _, row in courses_for_vector.iterrows():
     course_name = row_value(row, "course_name")
+
     if not course_name:
         continue
 
     tracks = row.get("track_name")
+
     if isinstance(tracks, list):
         track_text = ", ".join(tracks)
     else:
@@ -759,15 +868,15 @@ for _, row in courses_for_vector.iterrows():
         f"과목명: {course_name}",
         f"과목코드: {row_value(row, 'course_code')}",
         f"정규화 과목코드: {row_value(row, 'course_code_norm')}",
-        f"과목 수준: {row_value(row, 'course_level')}",
+        f"과목수준: {row_value(row, 'course_level')}",
         f"이수구분: {row_value(row, 'course_type')}",
         f"학점: {row_value(row, 'credit')}",
-        f"관련 트랙: {track_text}",
+        f"관련트랙: {track_text}",
         f"설명: {desc}",
         f"출처: {row_value(row, 'source_url')}",
     ]
 
-    text = "\n".join([x for x in lines if not x.endswith("None")])
+    text = "\n".join([line for line in lines if not line.endswith("None")])
 
     add_doc(
         vector_docs,
@@ -780,8 +889,8 @@ for _, row in courses_for_vector.iterrows():
             "title": course_name,
             "course_code": row_value(row, "course_code"),
             "course_code_norm": row_value(row, "course_code_norm"),
-            "course_type": row_value(row, "course_type"),
             "course_level": row_value(row, "course_level"),
+            "course_type": row_value(row, "course_type"),
             "tracks": track_text,
             "source_url": row_value(row, "source_url"),
             "crawled_at": row_value(row, "crawled_at"),
@@ -795,17 +904,18 @@ for _, row in courses_for_vector.iterrows():
 # ------------------------------------------------------------
 
 for _, row in people.iterrows():
-    name = row_value(row, "name")
+    name = row_value(row, "name") or row_value(row, "name_ko") or row_value(row, "name_en")
+
     if not name:
         continue
 
     lines = [
-        f"[{row_value(row, 'dept_name')} 교수/구성원 정보]",
+        f"[{row_value(row, 'dept_name')} 교수진/구성원 정보]",
         f"이름: {name}",
-        f"한글명: {row_value(row, 'name_ko')}",
-        f"영문명: {row_value(row, 'name_en')}",
+        f"한국어 이름: {row_value(row, 'name_ko')}",
+        f"영문 이름: {row_value(row, 'name_en')}",
         f"역할: {row_value(row, 'role')}",
-        f"역할 정규화: {row_value(row, 'role_normalized')}",
+        f"정규화 역할: {row_value(row, 'role_normalized')}",
         f"교원 그룹: {row_value(row, 'faculty_group')}",
         f"이메일: {row_value(row, 'email')}",
         f"전화번호: {row_value(row, 'phone')}",
@@ -815,7 +925,7 @@ for _, row in people.iterrows():
         f"출처: {row_value(row, 'source_url')}",
     ]
 
-    text = "\n".join([x for x in lines if not x.endswith("None")])
+    text = "\n".join([line for line in lines if not line.endswith("None")])
 
     add_doc(
         vector_docs,
@@ -827,13 +937,13 @@ for _, row in people.iterrows():
             "dept_name": row_value(row, "dept_name"),
             "title": name,
             "name": name,
-            "role": row_value(row, "role_normalized"),
+            "role": row_value(row, "role_normalized") or row_value(row, "role"),
             "email": row_value(row, "email"),
             "homepage": row_value(row, "homepage"),
-            "source_url": row_value(row, "source_url"),
+            "source_url": row_value(row, "source_url") or row_value(row, "homepage"),
             "crawled_at": row_value(row, "crawled_at"),
         },
-        doc_id_seed=row_value(row, "person_id"),
+        doc_id_seed=row_value(row, "person_id") or row_value(row, "record_id"),
     )
 
 
@@ -842,20 +952,20 @@ for _, row in people.iterrows():
 # ------------------------------------------------------------
 
 for _, row in events.iterrows():
-    title = row_value(row, "title") or "행사 정보"
+    title = row_value(row, "title") or "행사/공지 정보"
 
     lines = [
         f"[{row_value(row, 'dept_name')} 행사/공지 정보]",
-        f"행사 유형: {row_value(row, 'event_type')}",
+        f"행사유형: {row_value(row, 'event_type')}",
         f"페이지 제목: {row_value(row, 'page_title')}",
         f"제목: {title}",
-        f"행사일: {row_value(row, 'event_date')}",
+        f"일자: {row_value(row, 'event_date')}",
         f"요약: {row_value(row, 'summary')}",
         f"내용: {row_value(row, 'content')}",
         f"출처: {row_value(row, 'source_url')}",
     ]
 
-    text = "\n".join([x for x in lines if not x.endswith("None")])
+    text = "\n".join([line for line in lines if not line.endswith("None")])
 
     add_doc(
         vector_docs,
@@ -875,100 +985,77 @@ for _, row in events.iterrows():
 
 
 # ------------------------------------------------------------
-# 4-5. department_offices -> vector docs
+# 4-5. KAIST profile/statistics/links -> vector docs
 # ------------------------------------------------------------
 
-for _, row in offices.iterrows():
-    program = row_value(row, "program_name")
-    if not program:
+for _, row in kaist_profile.iterrows():
+    item = row_value(row, "item")
+    content = row_value(row, "content")
+
+    if not item and not content:
         continue
 
     text = "\n".join([
-        "[KAIST 학과사무실 정보]",
-        f"학과/프로그램: {program}",
-        f"전화번호: {row_value(row, 'phone')}",
-        f"웹사이트: {row_value(row, 'website')}",
-        f"건물 위치: {row_value(row, 'building_location')}",
-        f"출처: {row_value(row, 'source')}",
+        "[KAIST 기본 정보]",
+        f"항목: {item}",
+        f"내용: {content}",
+        f"비고: {row_value(row, 'note')}",
+        f"출처: {row_value(row, 'source_url')}",
     ])
 
     add_doc(
         vector_docs,
         text,
         {
-            "source_type": "csv_department_office",
-            "content_type": "office_contact",
+            "source_type": "csv_kaist_profile",
+            "content_type": "kaist_profile",
             "dept": None,
-            "dept_name": program,
-            "title": program,
-            "phone": row_value(row, "phone"),
-            "website": row_value(row, "website"),
-            "source": row_value(row, "source"),
-            "source_page": row_value(row, "source_page"),
+            "dept_name": "KAIST",
+            "title": item,
+            "source_url": row_value(row, "source_url"),
         },
-        doc_id_seed=row_value(row, "office_id"),
+        doc_id_seed=f"kaist_profile_{item}_{content}",
     )
 
 
-# ------------------------------------------------------------
-# 4-6. KAIST 기본정보 -> vector docs
-# ------------------------------------------------------------
+for _, row in kaist_statistics.iterrows():
+    stat_group = row_value(row, "stat_group")
+    level = row_value(row, "level")
 
-# 학교 프로필은 하나의 문서로 묶음
-profile_lines = ["[KAIST 기본정보]"]
-for _, row in profile.iterrows():
-    item = row_value(row, "item")
-    content = row_value(row, "content")
-    if item and content:
-        profile_lines.append(f"{item}: {content}")
-
-add_doc(
-    vector_docs,
-    "\n".join(profile_lines),
-    {
-        "source_type": "csv_kaist_profile",
-        "content_type": "kaist_profile",
-        "dept": None,
-        "dept_name": "KAIST",
-        "title": "KAIST 기본정보",
-        "source_url": kaist_home_url,
-    },
-    doc_id_seed="kaist_profile",
-)
-
-# 통계도 하나의 문서로 묶음
-if len(kaist_statistics) > 0:
-    stat_lines = ["[KAIST 통계 정보]"]
-    for _, row in kaist_statistics.iterrows():
-        stat_lines.append(
-            f"{row_value(row, 'stat_group')} - {row_value(row, 'level')}: "
-            f"{row_value(row, 'value_raw')} ({row_value(row, 'note')})"
-        )
+    text = "\n".join([
+        "[KAIST 통계 정보]",
+        f"통계그룹: {stat_group}",
+        f"구분: {level}",
+        f"값: {row_value(row, 'value_raw')}",
+        f"숫자값: {row_value(row, 'value_number')}",
+        f"비고: {row_value(row, 'note')}",
+    ])
 
     add_doc(
         vector_docs,
-        "\n".join(stat_lines),
+        text,
         {
             "source_type": "csv_kaist_statistics",
             "content_type": "kaist_statistics",
             "dept": None,
             "dept_name": "KAIST",
-            "title": "KAIST 통계 정보",
+            "title": f"{stat_group} {level}",
             "source_url": kaist_home_url,
         },
-        doc_id_seed="kaist_statistics",
+        doc_id_seed=f"kaist_statistics_{stat_group}_{level}",
     )
 
-# 링크 정보
+
 for _, row in kaist_links.iterrows():
     link_name = row_value(row, "link_name")
     url = row_value(row, "url")
-    if not link_name or not url:
+
+    if not url:
         continue
 
     text = "\n".join([
         "[KAIST 공식 링크]",
-        f"항목: {link_name}",
+        f"링크명: {link_name}",
         f"URL: {url}",
         f"비고: {row_value(row, 'note')}",
     ])
@@ -990,13 +1077,48 @@ for _, row in kaist_links.iterrows():
 
 
 # ------------------------------------------------------------
+# 4-6. department offices -> vector docs
+# ------------------------------------------------------------
+
+for _, row in department_offices.iterrows():
+    program_name = row_value(row, "program_name")
+
+    if not program_name:
+        continue
+
+    text = "\n".join([
+        "[KAIST 학과사무실 정보]",
+        f"프로그램/학과명: {program_name}",
+        f"전화번호: {row_value(row, 'phone')}",
+        f"웹사이트: {row_value(row, 'website')}",
+        f"위치: {row_value(row, 'building_location')}",
+        f"출처: {row_value(row, 'source_page')}",
+    ])
+
+    add_doc(
+        vector_docs,
+        text,
+        {
+            "source_type": "csv_department_office",
+            "content_type": "office_contact",
+            "dept": None,
+            "dept_name": program_name,
+            "title": program_name,
+            "phone": row_value(row, "phone"),
+            "website": row_value(row, "website"),
+            "source_url": row_value(row, "source_page"),
+        },
+        doc_id_seed=row_value(row, "office_id"),
+    )
+
+
+# ------------------------------------------------------------
 # 4-7. assets -> vector docs
 # ------------------------------------------------------------
 
-# image만 있는 행은 제외.
-# 연락처, 링크, 의미 있는 텍스트만 vectorstore에 넣음.
 for _, row in assets[assets["is_vector_candidate"] == True].iterrows():
     text_value = row_value(row, "text")
+
     if not text_value:
         continue
 
@@ -1011,7 +1133,7 @@ for _, row in assets[assets["is_vector_candidate"] == True].iterrows():
         f"출처 페이지: {row_value(row, 'source_url')}",
     ]
 
-    text = "\n".join([x for x in lines if not x.endswith("None")])
+    text = "\n".join([line for line in lines if not line.endswith("None")])
 
     add_doc(
         vector_docs,
@@ -1034,15 +1156,16 @@ for _, row in assets[assets["is_vector_candidate"] == True].iterrows():
 # 4-8. attachments metadata -> vector docs
 # ------------------------------------------------------------
 
-# PDF 본문은 실제 PDF에서 추출하므로, 여기서는 "첨부파일 존재/다운로드 링크" 정도만 문서화
 for _, row in attachments.iterrows():
     filename = row_value(row, "filename")
+
     if not filename:
         continue
 
     text = "\n".join([
         "[KAIST 첨부파일 메타데이터]",
         f"학과 코드: {row_value(row, 'dept')}",
+        f"학과명: {row_value(row, 'dept_name')}",
         f"게시판: {row_value(row, 'board')}",
         f"파일명: {filename}",
         f"파일 확장자: {row_value(row, 'ext')}",
@@ -1058,11 +1181,11 @@ for _, row in attachments.iterrows():
             "source_type": "csv_attachment_meta",
             "content_type": "attachment_meta",
             "dept": row_value(row, "dept"),
-            "dept_name": None,
+            "dept_name": row_value(row, "dept_name"),
             "title": filename,
             "filename": filename,
             "url": row_value(row, "url"),
-            "source_url": row_value(row, "url"),
+            "source_url": row_value(row, "source_url") or row_value(row, "url"),
             "crawled_at": row_value(row, "crawled_at"),
         },
         doc_id_seed=row_value(row, "attachment_id"),
@@ -1070,203 +1193,298 @@ for _, row in attachments.iterrows():
 
 
 # ============================================================
-# 5. PDF 4개 추출 -> vector docs
+# 5. PDF 추출
 # ============================================================
 
-try:
-    import fitz  # PyMuPDF
-except ImportError as e:
-    raise ImportError(
-        "PDF 텍스트 추출을 위해 PyMuPDF가 필요합니다. "
-        "아래 명령어를 먼저 실행하세요:\n\npip install pymupdf"
-    ) from e
-
-
-SECTION_RULES = [
-    ("admission", ["입학", "지원 자격", "모집", "전형", "합격자", "원서접수", "Application", "Admission"]),
-    ("schedule", ["일정", "Schedule", "Date", "지원일정"]),
-    ("faculty", ["교수", "Faculty", "전임", "겸임", "학과장"]),
-    ("curriculum", ["교육과정", "교과", "Curriculum", "Course", "Degree", "credits", "학점"]),
-    ("research", ["연구", "Research", "분야", "AI 반도체", "AI 시스템", "거버넌스", "지속가능"]),
-    ("vision", ["비전", "Vision", "목표", "왜", "paradigm", "Full Stack", "Human-Centered"]),
-    ("advisor_matching", ["지도교수", "매칭", "장학생", "KAIST 장학생", "국비"]),
-]
-
-
-def detect_section(text):
-    text = text or ""
-    for section, keywords in SECTION_RULES:
-        for kw in keywords:
-            if kw.lower() in text.lower():
-                return section
-    return "general"
-
-
-def extract_page_title(text):
-    lines = [line.strip() for line in str(text).splitlines() if line.strip()]
-
-    skip_patterns = [
-        r"^https?://",
-        r"^\d+/\d+$",
-        r"^\d{2}\.",
-        r"^KAIST$",
-    ]
-
-    for line in lines[:10]:
-        if any(re.search(pat, line) for pat in skip_patterns):
-            continue
-        if len(line) >= 2:
-            return line[:120]
-
-    return None
-
-
-def extract_pdf_docs(pdf_path: Path, base_meta: dict):
-    pdf_docs = []
-    page_reports = []
+def extract_pdf_text_pages(pdf_path: Path) -> tuple[list[dict[str, Any]], str | None]:
+    try:
+        import fitz
+    except ModuleNotFoundError:
+        return [], "PyMuPDF가 설치되어 있지 않습니다. pip install pymupdf 실행이 필요합니다."
 
     if not pdf_path.exists():
-        page_reports.append({
-            "file_name": pdf_path.name,
+        return [], "missing_file"
+
+    pages: list[dict[str, Any]] = []
+
+    try:
+        with fitz.open(pdf_path) as document:
+            for page_index, page in enumerate(document, start=1):
+                text = page.get_text("text")
+                text = clean_scalar(text)
+
+                pages.append({
+                    "page": page_index,
+                    "text": text,
+                    "char_len": len(text or ""),
+                })
+    except Exception as exc:
+        return [], f"{type(exc).__name__}: {exc}"
+
+    return pages, None
+
+
+pdf_page_reports: list[dict[str, Any]] = []
+
+for pdf_filename, pdf_meta in PDF_FILES.items():
+    pdf_path = RAW_DATA_DIR / pdf_filename
+    pages, error = extract_pdf_text_pages(pdf_path)
+
+    if error == "missing_file":
+        pdf_page_reports.append({
+            "file_name": pdf_filename,
+            "dept": pdf_meta["dept"],
+            "dept_name": pdf_meta["dept_name"],
             "page": None,
             "status": "missing_file",
-            "text_length": 0,
-            "note": "파일 없음",
+            "char_len": 0,
+            "message": f"PDF 파일을 찾을 수 없습니다: {pdf_path}",
         })
-        return pdf_docs, page_reports
+        continue
 
-    doc = fitz.open(pdf_path)
+    if error:
+        pdf_page_reports.append({
+            "file_name": pdf_filename,
+            "dept": pdf_meta["dept"],
+            "dept_name": pdf_meta["dept_name"],
+            "page": None,
+            "status": "error",
+            "char_len": 0,
+            "message": error,
+        })
+        continue
 
-    for page_index in range(len(doc)):
-        page_no = page_index + 1
-        page = doc[page_index]
+    for page_info in pages:
+        page_no = page_info["page"]
+        page_text = page_info["text"]
+        char_len = page_info["char_len"]
 
-        raw_text = page.get_text("text")
-        text = clean_scalar(raw_text)
-
-        if not text or len(text) < 10:
-            page_reports.append({
-                "file_name": pdf_path.name,
+        if not page_text or char_len < 40:
+            pdf_page_reports.append({
+                "file_name": pdf_filename,
+                "dept": pdf_meta["dept"],
+                "dept_name": pdf_meta["dept_name"],
                 "page": page_no,
                 "status": "empty_or_too_short",
-                "text_length": len(text or ""),
-                "note": "텍스트 레이어가 없거나 너무 짧음. 필요하면 OCR 검토.",
+                "char_len": char_len,
+                "message": "텍스트가 없거나 너무 짧습니다.",
             })
             continue
 
-        section = detect_section(text)
-        title = extract_page_title(text) or f"{pdf_path.stem} page {page_no}"
+        chunks = chunk_text_by_paragraphs(page_text, max_chars=1200, overlap_chars=120)
 
-        chunks = chunk_text_by_paragraphs(text, max_chars=1200, overlap_chars=120)
-
-        for chunk_idx, chunk in enumerate(chunks, start=1):
-            vector_text = "\n".join([
-                f"[{base_meta['dept_name']} PDF 자료]",
-                f"문서명: {pdf_path.name}",
-                f"페이지: {page_no}",
-                f"섹션: {section}",
-                f"제목: {title}",
-                "",
-                chunk,
-            ])
-
-            metadata = {
-                "source_type": "pdf",
-                "content_type": f"pdf_{section}",
-                "document_type": base_meta.get("document_type"),
-                "dept": base_meta.get("dept"),
-                "dept_name": base_meta.get("dept_name"),
-                "file_name": pdf_path.name,
-                "title": title,
-                "section": section,
-                "page": page_no,
-                "chunk_index": chunk_idx,
-                "source_url": base_meta.get("source_url"),
-                "year": base_meta.get("year"),
-                "semester": base_meta.get("semester"),
-            }
-
+        for chunk_index, chunk in enumerate(chunks, start=1):
             add_doc(
-                pdf_docs,
-                vector_text,
-                metadata,
-                doc_id_seed=f"{pdf_path.name}_{page_no}_{chunk_idx}",
+                vector_docs,
+                "\n".join([
+                    f"[{pdf_meta['dept_name']} PDF 문서]",
+                    f"파일명: {pdf_filename}",
+                    f"문서유형: {pdf_meta['document_type']}",
+                    f"페이지: {page_no}",
+                    f"청크: {chunk_index}",
+                    chunk,
+                ]),
+                {
+                    "source_type": "pdf",
+                    "content_type": f"pdf_{pdf_meta['document_type']}",
+                    "dept": pdf_meta["dept"],
+                    "dept_name": pdf_meta["dept_name"],
+                    "title": pdf_filename,
+                    "file_name": pdf_filename,
+                    "page": page_no,
+                    "chunk_index": chunk_index,
+                    "document_type": pdf_meta["document_type"],
+                    "source_url": pdf_meta["source_url"],
+                    "year": pdf_meta["year"],
+                    "semester": pdf_meta["semester"],
+                },
+                doc_id_seed=f"{pdf_filename}_{page_no}_{chunk_index}",
             )
 
-        page_reports.append({
-            "file_name": pdf_path.name,
+        pdf_page_reports.append({
+            "file_name": pdf_filename,
+            "dept": pdf_meta["dept"],
+            "dept_name": pdf_meta["dept_name"],
             "page": page_no,
             "status": "ok",
-            "text_length": len(text),
-            "section": section,
-            "title": title,
-            "chunk_count": len(chunks),
+            "char_len": char_len,
+            "message": f"{len(chunks)} chunks",
         })
 
-    doc.close()
-    return pdf_docs, page_reports
-
-
-pdf_page_reports = []
-
-for pdf_filename, meta in PDF_FILES.items():
-    pdf_path = RAW_DATA_DIR / pdf_filename
-    docs_from_pdf, reports = extract_pdf_docs(pdf_path, meta)
-    vector_docs.extend(docs_from_pdf)
-    pdf_page_reports.extend(reports)
 
 pdf_report_df = pd.DataFrame(pdf_page_reports)
 save_csv(pdf_report_df, REPORT_DIR / "pdf_page_report.csv")
 
 
 # ============================================================
-# 6. vector docs 중복 제거 및 저장
+# 5-1. PDF 추출 결과 검증 + text_preview fallback
 # ============================================================
 
-deduped_docs = []
-seen = set()
+pdf_doc_count = sum(
+    1 for doc in vector_docs
+    if doc["metadata"].get("source_type") == "pdf"
+)
+
+print("\n[PDF 추출 검증]")
+print(f"- PDF vector 문서 수: {pdf_doc_count}")
+
+if len(pdf_report_df) > 0 and "status" in pdf_report_df.columns:
+    print("- PDF 페이지 상태 분포:")
+    print(pdf_report_df["status"].value_counts(dropna=False).to_string())
+
+print(f"- PDF 페이지 리포트 저장 위치: {REPORT_DIR / 'pdf_page_report.csv'}")
+
+fallback_preview_count = 0
+
+if pdf_doc_count == 0:
+    print("[경고] PDF 본문 추출 결과가 없습니다. attachments.text_preview를 fallback 문서로 추가합니다.")
+
+    if "text_preview" in attachments.columns:
+        for _, row in attachments.iterrows():
+            preview = row_value(row, "text_preview")
+            filename = row_value(row, "filename")
+
+            if not preview:
+                continue
+
+            add_doc(
+                vector_docs,
+                "\n".join([
+                    "[KAIST 첨부파일 미리보기]",
+                    f"학과 코드: {row_value(row, 'dept')}",
+                    f"학과명: {row_value(row, 'dept_name')}",
+                    f"파일명: {filename}",
+                    f"내용 미리보기: {preview}",
+                    f"다운로드 URL: {row_value(row, 'url')}",
+                    f"출처 페이지: {row_value(row, 'source_url')}",
+                ]),
+                {
+                    "source_type": "csv_attachment_preview",
+                    "content_type": "attachment_preview",
+                    "dept": row_value(row, "dept"),
+                    "dept_name": row_value(row, "dept_name"),
+                    "title": filename,
+                    "filename": filename,
+                    "url": row_value(row, "url"),
+                    "source_url": row_value(row, "source_url") or row_value(row, "url"),
+                    "crawled_at": row_value(row, "crawled_at"),
+                },
+                doc_id_seed=f"attachment_preview_{row_value(row, 'attachment_id') or filename}",
+            )
+
+            fallback_preview_count += 1
+
+    print(f"- fallback preview 문서 수: {fallback_preview_count}")
+
+if pdf_doc_count == 0 and fallback_preview_count == 0:
+    raise RuntimeError(
+        "PDF 본문도 추출되지 않았고 attachments.text_preview fallback도 생성되지 않았습니다. "
+        "RAW_DATA_DIR의 PDF 파일명, PDF_FILES 설정, attachments.csv의 text_preview를 확인하세요."
+    )
+
+
+# ============================================================
+# 6. 중복 제거 및 Vector JSON 저장
+# ============================================================
+
+deduped_docs: list[dict[str, Any]] = []
+seen_doc_ids: set[str] = set()
+seen_hashes: set[str] = set()
 
 for doc in vector_docs:
-    text = doc["text"]
-    meta = doc["metadata"]
-
-    key = make_hash(
-        meta.get("source_type"),
-        meta.get("dept"),
-        meta.get("title"),
-        meta.get("page"),
-        text[:500],
+    text = doc.get("text", "")
+    metadata = doc.get("metadata", {}) or {}
+    doc_hash = make_hash(
+        metadata.get("source_type"),
+        metadata.get("content_type"),
+        metadata.get("dept"),
+        metadata.get("title"),
+        text,
         length=24,
     )
 
-    if key in seen:
+    if doc_hash in seen_hashes:
         continue
 
-    seen.add(key)
+    doc_id = doc.get("id") or doc_hash
+
+    if doc_id in seen_doc_ids:
+        doc_id = doc_hash
+        doc["id"] = doc_id
+
+    seen_doc_ids.add(doc_id)
+    seen_hashes.add(doc_hash)
     deduped_docs.append(doc)
 
 vector_docs = deduped_docs
 
 
+# ============================================================
+# 6-1. vector 문서 품질 리포트 저장
+# ============================================================
+
+vector_quality_rows: list[dict[str, Any]] = []
+
+for doc in vector_docs:
+    meta = doc.get("metadata", {}) or {}
+
+    vector_quality_rows.append({
+        "id": doc.get("id"),
+        "source_type": meta.get("source_type"),
+        "content_type": meta.get("content_type"),
+        "dept": meta.get("dept"),
+        "dept_name": meta.get("dept_name"),
+        "title": meta.get("title"),
+        "source_url": meta.get("source_url"),
+        "text_length": len(doc.get("text", "") or ""),
+    })
+
+vector_quality_df = pd.DataFrame(vector_quality_rows)
+
+if len(vector_quality_df) > 0:
+    save_csv(vector_quality_df, REPORT_DIR / "vector_documents_quality.csv")
+
+    content_type_report = (
+        vector_quality_df
+        .groupby(["source_type", "content_type"], dropna=False)
+        .size()
+        .reset_index(name="count")
+        .sort_values("count", ascending=False)
+    )
+    save_csv(content_type_report, REPORT_DIR / "vector_content_type_report.csv")
+
+    dept_report = (
+        vector_quality_df
+        .groupby(["dept", "dept_name"], dropna=False)
+        .size()
+        .reset_index(name="count")
+        .sort_values("count", ascending=False)
+    )
+    save_csv(dept_report, REPORT_DIR / "vector_dept_report.csv")
+
+    print("\n[Vector 문서 분포]")
+    print("- source_type/content_type 분포:")
+    print(content_type_report.head(30).to_string(index=False))
+
+    print("\n- 학과별 vector 문서 수:")
+    print(dept_report.to_string(index=False))
+
+
 vector_json_path = VECTOR_DIR / "vector_documents.json"
+with open(vector_json_path, "w", encoding="utf-8") as file:
+    json.dump(vector_docs, file, ensure_ascii=False, indent=2)
 
-with open(vector_json_path, "w", encoding="utf-8") as f:
-    json.dump(vector_docs, f, ensure_ascii=False, indent=2)
-
-
-# LangChain Document 로딩용 JSONL도 같이 저장하고 싶으면 아래 파일을 사용
 vector_jsonl_path = VECTOR_DIR / "vector_documents.jsonl"
-
-with open(vector_jsonl_path, "w", encoding="utf-8") as f:
+with open(vector_jsonl_path, "w", encoding="utf-8") as file:
     for doc in vector_docs:
-        f.write(json.dumps(doc, ensure_ascii=False) + "\n")
+        file.write(json.dumps(doc, ensure_ascii=False) + "\n")
 
 
 # ============================================================
 # 7. 전처리 요약 리포트 저장
 # ============================================================
 
-summary_rows = []
+summary_rows: list[dict[str, Any]] = []
 
 for file in SQL_DIR.glob("*.csv"):
     try:
@@ -1314,6 +1532,9 @@ print(f"SQL CSV 저장 폴더: {SQL_DIR}")
 print(f"VectorStore JSON 저장 파일: {vector_json_path}")
 print(f"VectorStore JSONL 저장 파일: {vector_jsonl_path}")
 print(f"PDF 페이지 추출 리포트: {REPORT_DIR / 'pdf_page_report.csv'}")
+print(f"Vector 문서 품질 리포트: {REPORT_DIR / 'vector_documents_quality.csv'}")
+print(f"Vector content_type 리포트: {REPORT_DIR / 'vector_content_type_report.csv'}")
+print(f"Vector 학과별 리포트: {REPORT_DIR / 'vector_dept_report.csv'}")
 print(f"전체 요약 리포트: {REPORT_DIR / 'preprocess_summary.csv'}")
 print(f"Vector 문서 수: {len(vector_docs)}")
 
@@ -1323,7 +1544,8 @@ for file in sorted(SQL_DIR.glob("*.csv")):
 
 print("\n[주의]")
 print("1. quality_report.csv는 RAG 지식이 아니라 관리용 로그로 그대로 저장했습니다.")
-print("2. attachments_clean의 text_preview는 vectorstore에 넣지 않고, 실제 PDF 4개에서 직접 텍스트를 추출했습니다.")
-print("3. course_track_map은 SQL에는 별도 저장했고, vectorstore에는 courses와 합쳐서 과목 문서로 만들었습니다.")
-print("4. assets의 image-only 행은 SQL에는 남기고 vectorstore에서는 제외했습니다.")
-print("5. pdf_page_report.csv에서 empty_or_too_short가 많으면 OCR 처리가 추가로 필요합니다.")
+print("2. attachments_clean의 text_preview는 기본적으로 vectorstore에 넣지 않습니다.")
+print("3. 단, PDF 본문 추출이 0개면 text_preview를 fallback 문서로 추가합니다.")
+print("4. course_track_map은 SQL에는 별도 저장했고, vectorstore에는 courses와 합쳐서 과목 문서로 만들었습니다.")
+print("5. assets의 image-only 행은 SQL에는 남기고 vectorstore에서는 제외했습니다.")
+print("6. pdf_page_report.csv에서 missing_file 또는 empty_or_too_short가 많으면 PDF 경로/OCR 처리가 필요합니다.")

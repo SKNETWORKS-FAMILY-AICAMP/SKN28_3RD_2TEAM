@@ -2,30 +2,24 @@
 build_vectorstore.py
 
 전처리된 JSONL(vector_documents.jsonl)을 읽어서
-KAIST 대학원 정보 RAG용 Chroma vectorstore를 생성하는 스크립트입니다.
+KAIST AI College RAG용 Chroma vectorstore를 생성하는 스크립트입니다.
 
 역할:
 - JSONL 로드
 - text 정리
 - metadata 정규화
-- RAG 검색 효율을 위한 page_content 헤더 추가
+- 검색 효율을 위한 page_content 헤더 추가
+- 낮은 가치 문서 attachment_meta 기본 제외
 - 중복 문서 제거
 - Chroma vectorstore 저장
-
-주의:
-- 커스텀 retriever / RAG 체인은 이 파일에 포함하지 않습니다.
-- RAG 검색 단계의 metadata filter, MMR, rerank 등은 별도 RAG 코드에서 처리하세요.
+- content_type/source_type/학과별 문서 분포 출력
+- 실패 질문 중심 smoke test 실행
 
 실행 예시:
-    python build_vectorstore.py
+    python data/build_vectorstore.py --reset --smoke-test
 
-옵션 예시:
-    python build_vectorstore.py --reset
-    python build_vectorstore.py --project-root "."
-    python build_vectorstore.py --jsonl-path "data/processed/json/vector_documents.jsonl"
-    python build_vectorstore.py --chroma-dir "data/vectorstore/chroma_db"
-    python build_vectorstore.py --embedding-model text-embedding-3-small
-    python build_vectorstore.py --drop-low-value-docs
+권장 실행:
+    python data/build_vectorstore.py --reset --drop-low-value-docs --smoke-test
 """
 
 from __future__ import annotations
@@ -53,10 +47,14 @@ if TYPE_CHECKING:
 
 CURRENT_FILE = Path(__file__).resolve()
 DEFAULT_PROJECT_ROOT = CURRENT_FILE.parents[1]
+
 DEFAULT_JSONL_REL_PATH = (
     Path("data") / "processed" / "json" / "vector_documents.jsonl"
 )
-DEFAULT_CHROMA_REL_DIR = Path("data") / "vectorstore" / "chroma_db"
+
+DEFAULT_CHROMA_REL_DIR = (
+    Path("data") / "vectorstore" / "chroma_db"
+)
 
 DEFAULT_COLLECTION_NAME = "kaist_graduate_info"
 DEFAULT_EMBEDDING_MODEL = "text-embedding-3-small"
@@ -152,20 +150,21 @@ def build_rag_page_content(text: str, metadata: dict[str, Any]) -> str:
     벡터 검색 효율을 높이기 위해 핵심 metadata를 본문 앞에 짧게 붙입니다.
 
     이유:
-    - metadata는 필터링과 출처 표시에는 좋지만,
-      일반 벡터 유사도 검색에는 직접 반영되지 않습니다.
-    - 학과명, 문서유형, 제목, 섹션, 과목코드, 이름, 이메일 같은 값은
+    - metadata는 필터링과 출처 표시에 좋지만, 일반 벡터 유사도 검색에는 직접 반영되지 않습니다.
+    - 학과명, 문서유형, 제목, 과목코드, 이름, 이메일, 전화번호 같은 값은
       사용자의 질문과 직접 매칭될 가능성이 높으므로 page_content에도 포함합니다.
     """
     keyword_parts: list[str] = []
 
     field_map = [
         ("dept_name", "학과"),
+        ("dept", "학과코드"),
         ("content_type", "문서유형"),
         ("source_type", "데이터출처유형"),
         ("title", "제목"),
         ("section", "섹션"),
         ("admission_type", "입학항목"),
+        ("schedule_date", "일정"),
         ("course_code", "과목코드"),
         ("course_code_norm", "정규화 과목코드"),
         ("course_level", "과목수준"),
@@ -176,7 +175,10 @@ def build_rag_page_content(text: str, metadata: dict[str, Any]) -> str:
         ("email", "이메일"),
         ("phone", "전화번호"),
         ("website", "웹사이트"),
+        ("homepage", "홈페이지"),
         ("event_date", "행사일"),
+        ("file_name", "파일명"),
+        ("page", "페이지"),
         ("url", "URL"),
         ("source_url", "출처URL"),
     ]
@@ -210,9 +212,12 @@ def make_hash_id(text: str, metadata: dict[str, Any]) -> str:
     base = "|".join(
         [
             str(metadata.get("dept_name", "")),
+            str(metadata.get("dept", "")),
             str(metadata.get("content_type", "")),
+            str(metadata.get("source_type", "")),
             str(metadata.get("title", "")),
             str(metadata.get("section", "")),
+            str(metadata.get("page", "")),
             text,
         ]
     )
@@ -226,7 +231,7 @@ def make_hash_id(text: str, metadata: dict[str, Any]) -> str:
 
 def load_documents_from_jsonl(
     jsonl_path: Path,
-    drop_low_value_docs: bool = False,
+    drop_low_value_docs: bool = True,
 ) -> tuple[list[Document], list[str]]:
     """
     vector_documents.jsonl을 읽어서 LangChain Document 리스트와 id 리스트로 변환합니다.
@@ -260,6 +265,8 @@ def load_documents_from_jsonl(
     skipped_duplicate_id_fixed = 0
 
     content_type_counter: Counter[str] = Counter()
+    source_type_counter: Counter[str] = Counter()
+    dept_counter: Counter[str] = Counter()
 
     with jsonl_path.open("r", encoding="utf-8") as f:
         lines = f.readlines()
@@ -284,8 +291,17 @@ def load_documents_from_jsonl(
 
         metadata = normalize_metadata(obj.get("metadata", {}))
 
-        content_type = metadata.get("content_type", "unknown")
-        content_type_counter[str(content_type)] += 1
+        content_type = str(metadata.get("content_type", "unknown"))
+        source_type = str(metadata.get("source_type", "unknown"))
+        dept_label = str(
+            metadata.get("dept_name")
+            or metadata.get("dept")
+            or "unknown"
+        )
+
+        content_type_counter[content_type] += 1
+        source_type_counter[source_type] += 1
+        dept_counter[dept_label] += 1
 
         if drop_low_value_docs and content_type in low_value_content_types:
             skipped_low_value += 1
@@ -340,14 +356,29 @@ def load_documents_from_jsonl(
     print(f"- 중복 id hash 재생성 수: {skipped_duplicate_id_fixed}")
 
     if content_type_counter:
-        print("\n[content_type 분포]")
+        print("\n[content_type 분포 - 원본 JSONL 기준]")
         for content_type_name, count in content_type_counter.most_common():
             print(f"- {content_type_name}: {count}")
+
+    if source_type_counter:
+        print("\n[source_type 분포 - 원본 JSONL 기준]")
+        for source_type_name, count in source_type_counter.most_common():
+            print(f"- {source_type_name}: {count}")
+
+    if dept_counter:
+        print("\n[학과별 문서 분포 - 원본 JSONL 기준]")
+        for dept_name, count in dept_counter.most_common():
+            print(f"- {dept_name}: {count}")
 
     if parse_errors:
         print("\n[파싱 오류 예시]")
         for line_no, error_message in parse_errors[:5]:
             print(f"- line {line_no}: {error_message}")
+
+    if not documents:
+        raise ValueError(
+            "저장할 문서가 없습니다. JSONL 파일 내용 또는 drop_low_value_docs 옵션을 확인하세요."
+        )
 
     return documents, ids
 
@@ -362,7 +393,7 @@ def build_chroma_vectorstore(
     collection_name: str = DEFAULT_COLLECTION_NAME,
     embedding_model_name: str = DEFAULT_EMBEDDING_MODEL,
     reset: bool = True,
-    drop_low_value_docs: bool = False,
+    drop_low_value_docs: bool = True,
     batch_size: int = DEFAULT_BATCH_SIZE,
 ) -> Chroma:
     """
@@ -381,9 +412,6 @@ def build_chroma_vectorstore(
         jsonl_path=jsonl_path,
         drop_low_value_docs=drop_low_value_docs,
     )
-
-    if not documents:
-        raise ValueError("저장할 문서가 없습니다. JSONL 파일 내용을 확인하세요.")
 
     embedding_model = OpenAIEmbeddings(
         model=embedding_model_name,
@@ -443,24 +471,31 @@ def load_chroma_vectorstore(
 
 
 # ============================================================
-# 8. 선택 사항: vectorstore 저장 확인용 간단 검색
+# 8. vectorstore 저장 확인용 smoke test
 # ============================================================
 
 def run_smoke_test(vector_store: Chroma) -> None:
     """
-    vectorstore 생성 후 저장이 정상인지 확인하기 위한 간단 검색입니다.
-    커스텀 retriever가 아니라 단순 similarity_search 확인용입니다.
+    vectorstore 생성 후 저장이 정상인지 확인하기 위한 검색 테스트입니다.
+
+    이전 평가에서 문제가 된 질문 유형을 포함합니다.
     """
     test_queries = [
         "AI컴퓨팅학과 석사 지원 자격",
         "AX학과 교수 이메일",
         "KAIST 학과사무실 전화번호",
+        "AI미래학과는 어떤 인재를 양성하려고 해?",
+        "AI컴퓨팅학과와 AX학과를 비교해줘.",
+        "AI컴퓨팅학과의 연락처가 문서에 나와 있어?",
+        "AI대학 학과별 홈페이지 URL을 정리해줘.",
+        "산업 현장에 AI를 적용하고 싶은데 어떤 학과가 적합해?",
+        "AI시스템학과의 교육과정을 알려줘.",
     ]
 
     print("\n[간단 검색 테스트]")
 
     for query in test_queries:
-        print("=" * 80)
+        print("=" * 100)
         print(f"질문: {query}")
 
         results = vector_store.similarity_search_with_score(
@@ -468,20 +503,31 @@ def run_smoke_test(vector_store: Chroma) -> None:
             k=3,
         )
 
+        if not results:
+            print("- 검색 결과 없음")
+            continue
+
         for idx, (doc, score) in enumerate(results, start=1):
             metadata = doc.metadata
 
-            print("-" * 80)
+            print("-" * 100)
             print(f"[결과 {idx}] score={score}")
             print(
                 {
+                    "dept": metadata.get("dept"),
                     "dept_name": metadata.get("dept_name"),
+                    "source_type": metadata.get("source_type"),
                     "content_type": metadata.get("content_type"),
                     "title": metadata.get("title"),
-                    "source": metadata.get("source"),
+                    "source": metadata.get("source") or metadata.get("source_url"),
                 }
             )
-            print(doc.page_content[:500])
+            print(doc.page_content[:700])
+
+
+# ============================================================
+# 9. 경로 처리
+# ============================================================
 
 def resolve_path(path: Path, project_root: Path) -> Path:
     """
@@ -497,7 +543,7 @@ def resolve_path(path: Path, project_root: Path) -> Path:
 
 
 # ============================================================
-# 9. CLI
+# 10. CLI
 # ============================================================
 
 def parse_args() -> argparse.Namespace:
@@ -516,14 +562,20 @@ def parse_args() -> argparse.Namespace:
         "--jsonl-path",
         type=Path,
         default=None,
-        help="vector_documents.jsonl 파일 경로. 생략하면 project-root/data/processed/json/vector_documents.jsonl 사용",
+        help=(
+            "vector_documents.jsonl 파일 경로. "
+            "생략하면 project-root/data/processed/json/vector_documents.jsonl 사용"
+        ),
     )
 
     parser.add_argument(
         "--chroma-dir",
         type=Path,
         default=None,
-        help="Chroma DB 저장 폴더. 생략하면 project-root/data/vectorstore/chroma_db 사용",
+        help=(
+            "Chroma DB 저장 폴더. "
+            "생략하면 project-root/data/vectorstore/chroma_db 사용"
+        ),
     )
 
     parser.add_argument(
@@ -562,13 +614,19 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--drop-low-value-docs",
         action="store_true",
-        help="attachment_meta 등 검색 가치가 낮은 문서를 제외",
+        help="attachment_meta 등 검색 가치가 낮은 문서를 제외합니다. 기본값도 제외입니다.",
+    )
+
+    parser.add_argument(
+        "--keep-low-value-docs",
+        action="store_true",
+        help="attachment_meta 같은 낮은 가치 문서도 vectorstore에 포함합니다.",
     )
 
     parser.add_argument(
         "--smoke-test",
         action="store_true",
-        help="저장 후 간단 similarity_search 테스트 실행",
+        help="저장 후 similarity_search 테스트 실행",
     )
 
     return parser.parse_args()
@@ -598,6 +656,16 @@ def main() -> None:
     if args.reset:
         reset = True
 
+    # 기본적으로 낮은 가치 문서는 제외.
+    # --keep-low-value-docs를 명시한 경우만 포함.
+    drop_low_value_docs = True
+
+    if args.drop_low_value_docs:
+        drop_low_value_docs = True
+
+    if args.keep_low_value_docs:
+        drop_low_value_docs = False
+
     print("[설정]")
     print(f"- project_root: {project_root}")
     print(f"- jsonl_path: {jsonl_path}")
@@ -606,7 +674,7 @@ def main() -> None:
     print(f"- embedding_model: {args.embedding_model}")
     print(f"- batch_size: {args.batch_size}")
     print(f"- reset: {reset}")
-    print(f"- drop_low_value_docs: {args.drop_low_value_docs}")
+    print(f"- drop_low_value_docs: {drop_low_value_docs}")
 
     vector_store = build_chroma_vectorstore(
         jsonl_path=jsonl_path,
@@ -614,7 +682,7 @@ def main() -> None:
         collection_name=args.collection_name,
         embedding_model_name=args.embedding_model,
         reset=reset,
-        drop_low_value_docs=args.drop_low_value_docs,
+        drop_low_value_docs=drop_low_value_docs,
         batch_size=args.batch_size,
     )
 

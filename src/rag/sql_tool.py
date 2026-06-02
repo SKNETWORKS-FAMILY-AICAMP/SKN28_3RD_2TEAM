@@ -84,16 +84,28 @@ class SQLTool:
 
     TABLE_HINT_MAP = {
         "courses": "course",
+        "course": "course",
         "professors": "person",
         "people": "person",
+        "person": "person",
         "office_contacts": "office_contacts",
+        "department_offices": "department_offices",
         "admissions": "admission",
+        "admission": "admission",
         "events": "event",
+        "event": "event",
         "assets": "asset",
+        "asset": "asset",
         "departments": "department",
+        "department": "department",
         "kaist_profile": "kaist_profile",
         "kaist_statistics": "kaist_statistics",
         "kaist_links": "kaist_links",
+        "department_homepage": "department_homepage",
+        "department_homepages": "department_homepage",
+        "requirements": "department_requirement",
+        "department_requirements": "department_requirement",
+        "department_requirement": "department_requirement",
     }
 
     def __init__(self, config: SQLToolConfig | None = None) -> None:
@@ -146,6 +158,12 @@ class SQLTool:
 
             if task_hint == "kaist_link_lookup":
                 return self._query_kaist_links(analysis)
+
+            if task_hint == "department_homepage_lookup":
+                return self._query_department_homepages(analysis)
+
+            if task_hint == "requirement_lookup":
+                return self._query_requirements(analysis)
 
             return self._unsupported_task_result(analysis)
 
@@ -1084,6 +1102,112 @@ class SQLTool:
                 for keyword in keywords
             )
         ]
+
+    def _query_department_homepages(self, analysis: QueryAnalysis) -> SqlQueryResult:
+        """
+        학과별 대표 홈페이지 URL 조회.
+
+        사용 예:
+        - AI대학 학과별 홈페이지 URL을 정리해줘.
+        - AI컴퓨팅학과 홈페이지 알려줘.
+        - AX학과 사이트 알려줘.
+        """
+        table_name = "department_homepage"
+
+        with self._connect() as conn:
+            if not self._table_exists(conn, table_name):
+                return self._missing_table_result(table_name, analysis)
+
+            params: list[Any] = []
+
+            if analysis.department_code:
+                where_clause = "h.dept = %s"
+                params.append(analysis.department_code)
+            else:
+                placeholders = ", ".join(["%s"] * len(SUPPORTED_AI_COLLEGE_DEPT_CODES))
+                where_clause = f"h.dept IN ({placeholders})"
+                params.extend(SUPPORTED_AI_COLLEGE_DEPT_CODES)
+
+            sql = f"""
+            SELECT
+                h.dept,
+                h.dept_name,
+                h.homepage_url,
+                h.admission_url,
+                h.faculty_url,
+                h.curriculum_url,
+                h.source
+            FROM department_homepage AS h
+            WHERE {where_clause}
+            ORDER BY FIELD(h.dept, 'aic', 'ai_systems', 'ax', 'fx')
+            LIMIT %s
+            """
+
+            params.append(self._limit())
+            rows = self._fetch_all(conn, sql, tuple(params))
+
+        return self._result(
+            table_name=table_name,
+            rows=rows,
+            analysis=analysis,
+            message="학과별 홈페이지 조회가 완료되었습니다.",
+        )
+
+    def _query_requirements(self, analysis: QueryAnalysis) -> SqlQueryResult:
+        """
+        학과별 졸업/수료/논문/이수 요건 조회.
+
+        현재 데이터가 비어 있을 수 있다.
+        이 경우 빈 결과를 반환하고, answer_generator에서
+        '제공된 자료에서 확인할 수 없습니다'로 답변하게 한다.
+        """
+        table_name = "department_requirement"
+
+        with self._connect() as conn:
+            if not self._table_exists(conn, table_name):
+                return self._missing_table_result(table_name, analysis)
+
+            params: list[Any] = []
+
+            if analysis.department_code:
+                where_clause = "r.dept = %s"
+                params.append(analysis.department_code)
+            else:
+                placeholders = ", ".join(["%s"] * len(SUPPORTED_AI_COLLEGE_DEPT_CODES))
+                where_clause = f"r.dept IN ({placeholders})"
+                params.extend(SUPPORTED_AI_COLLEGE_DEPT_CODES)
+
+            sql = f"""
+            SELECT
+                r.requirement_id,
+                r.dept,
+                r.dept_name,
+                r.program,
+                r.requirement_type,
+                r.requirement_name,
+                r.description,
+                r.credits,
+                r.source_url,
+                r.note
+            FROM department_requirement AS r
+            WHERE {where_clause}
+            ORDER BY
+                FIELD(r.dept, 'aic', 'ai_systems', 'ax', 'fx'),
+                r.program,
+                r.requirement_type,
+                r.requirement_name
+            LIMIT %s
+            """
+
+            params.append(self._limit())
+            rows = self._fetch_all(conn, sql, tuple(params))
+
+        return self._result(
+            table_name=table_name,
+            rows=rows,
+            analysis=analysis,
+            message="학과별 요건 조회가 완료되었습니다.",
+        )
 
     # ============================================================
     # Result helpers
