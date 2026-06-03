@@ -51,7 +51,7 @@ CSV_FILES = {
 
 
 PDF_FILES = {
-    "AI_Computing_Grad_Info_Session_20260320(1).pdf": {
+    "AI_Computing_Grad_Info_Session_20260320.pdf": {
         "dept": "aic",
         "dept_name": "AI컴퓨팅학과",
         "document_type": "grad_info_session",
@@ -59,7 +59,7 @@ PDF_FILES = {
         "year": 2026,
         "semester": "fall",
     },
-    "AI_Systems_Grad_Info_20260319(1).pdf": {
+    "AI_Systems_Grad_Info_20260319.pdf": {
         "dept": "ai_systems",
         "dept_name": "AI시스템학과",
         "document_type": "grad_info_session",
@@ -67,7 +67,7 @@ PDF_FILES = {
         "year": 2026,
         "semester": "fall",
     },
-    "KAIST AI & FUTURES STUDIES(1).pdf": {
+    "KAIST AI & FUTURES STUDIES.pdf": {
         "dept": "fx",
         "dept_name": "AI미래학과",
         "document_type": "department_web_pdf",
@@ -75,7 +75,7 @@ PDF_FILES = {
         "year": 2026,
         "semester": "fall",
     },
-    "KAIST AX (AI Transformation)(1).pdf": {
+    "KAIST AX (AI Transformation).pdf": {
         "dept": "ax",
         "dept_name": "AX학과",
         "document_type": "department_web_pdf",

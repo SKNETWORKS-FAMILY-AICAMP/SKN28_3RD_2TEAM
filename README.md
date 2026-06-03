@@ -1,84 +1,130 @@
-# SKN28_3RD_2TEAM
+# SKN28 3rd 2TEAM - KAIST AI College RAG Chatbot
 
-김성재, 손지은, 신혜지, 심기성
+> KAIST AI 관련 학과의 입학, 교과목, 교수진, 학과 소개, 연락처, 자료 링크 정보를 기반으로 사용자의 질문에 답변하는 **Streamlit 기반 RAG 챗봇 프로젝트**입니다.
 
-KAIST AI 관련 학과 사이트에서 수집한 데이터를 기반으로 RAG 챗봇을 구성하는 프로젝트입니다.  
-Streamlit 화면에서 사용자의 질문을 받고, RAG 파이프라인이 질문 분석, SQL/Vector 검색, context 구성, LLM 답변 생성을 수행합니다.
+---
 
-## 현재 구현 범위
+## 1. 프로젝트 개요
 
-- KAIST AI 관련 학과 수집/전처리 데이터 활용
-- CSV 정형 데이터와 PDF/문서 기반 비정형 데이터 분리 처리
-- MySQL 적재용 CSV 생성 및 SQL 조회 구조 구성
-- Chroma vectorstore 생성 및 문서 검색
-- 질문 유형, 학과, route 분석
-- 키워드 기반 분류와 애매한 질문용 예시 유사도 매칭
-- 수집 범위 밖 KAIST 학과 및 KAIST 외 질문 분기
-- SQL 검색과 Vector 검색을 함께 사용할 수 있는 hybrid RAG 구조
-- SQL 검색 실패 또는 결과 부족 시 Vector 검색 fallback
-- 검색 결과를 LLM 답변용 context로 구성
-- LangChain `ChatOpenAI` 기반 답변 생성
-- intent별 답변 포맷 지시와 안전 프롬프트
-- 개인별 합격 여부, 합격 가능성, 선발 확률 질문 차단
-- Streamlit 챗봇 연결, 대화 맥락 유지, 동일 질문 캐시
-- 답변 streaming 출력 및 출처 카드 표시
-- 첫 질문 지연 완화를 위한 RAG warm-up
-- 테스트 노트북 및 챗봇 평가 결과 저장 구조 구성
+본 프로젝트는 KAIST AI 관련 학과 정보를 수집·전처리한 뒤, 정형 데이터는 MySQL에 저장하고 비정형 문서 데이터는 Chroma VectorStore에 저장하여 사용자의 질문에 근거 기반 답변을 제공하는 RAG 시스템입니다.
 
-## 지원 학과
+사용자는 Streamlit 화면에서 자연어로 질문할 수 있으며, 시스템은 질문의 의도와 대상 학과를 분석한 뒤 SQL 조회, Vector 검색, 또는 두 방식을 함께 사용하는 Hybrid 검색을 수행합니다. 이후 검색 결과를 LLM에 전달하여 최종 답변과 출처를 생성합니다.
 
-현재 RAG 챗봇은 수집된 KAIST AI 관련 학과 데이터를 중심으로 답변합니다.
+---
+
+## 2. 팀원
+
+| 이름 |
+|---|
+| 김성재 |
+| 손지은 |
+| 신혜지 |
+| 심기성 |
+
+---
+
+## 3. 주요 기능
+
+- KAIST AI 관련 학과 정보 기반 질의응답
+- Streamlit 기반 멀티페이지 웹 애플리케이션
+- 학과별 입학 정보, 교과목, 교수진, 연락처, 학과 소개 조회
+- MySQL 기반 정형 데이터 검색
+- Chroma VectorStore 기반 문서 검색
+- SQL 검색과 Vector 검색을 결합한 Hybrid RAG 구조
+- 질문 의도, 학과, 검색 route 자동 분석
+- 대화 맥락을 활용한 후속 질문 처리
+- 동일 질문 캐시 및 RAG 검색기 warm-up
+- 답변 출처 카드 표시
+- 개인별 합격 가능성, 합격 확률, 합격 여부 예측 질문 차단
+- 테스트 노트북 및 챗봇 평가 결과 저장
+
+---
+
+## 4. 지원 학과
+
+현재 프로젝트는 수집된 KAIST AI 관련 4개 학과 데이터를 중심으로 동작합니다.
+
+| 학과명 | 코드 |
+|---|---|
+| AI컴퓨팅학과 | `aic` |
+| AI시스템학과 | `ai_systems` |
+| AX학과 | `ax` |
+| AI미래학과 | `fx` |
+
+---
+
+## 5. 지원 질문 유형
+
+| 질문 유형 | 설명 | 예시 |
+|---|---|---|
+| 입학 정보 | 지원 자격, 전형, 일정, 제출서류 | `AI컴퓨팅학과 석사 지원 자격은?` |
+| 교과목 정보 | 커리큘럼, 과목명, 트랙 | `AI시스템학과 교과목 알려줘` |
+| 교수진 정보 | 교수명, 이메일, 연구분야 | `AX학과 교수진 알려줘` |
+| 학과 연락처 | 사무실, 전화번호, 위치 | `AI미래학과 사무실 연락처 알려줘` |
+| 학과 소개 | 학과 개요, 특징, 설명 | `AI컴퓨팅학과는 어떤 학과야?` |
+| 자료 링크 | 홈페이지, PDF, 관련 링크 | `AI시스템학과 공식 링크 알려줘` |
+| 비교 질문 | 여러 학과 비교 | `AI컴퓨팅학과와 AI시스템학과 차이를 알려줘` |
+
+---
+
+## 6. 전체 시스템 구조
 
 ```text
-AI컴퓨팅학과  -> aic
-AI시스템학과  -> ai_systems
-AX학과        -> ax
-AI미래학과    -> fx
+사용자 질문
+    ↓
+Streamlit UI
+    ↓
+RagPipeline
+    ↓
+QuestionAnalyzer
+    ├─ 질문 의도 분석
+    ├─ 학과명 추출
+    ├─ 검색 route 결정
+    └─ 답변 정책 검사
+    ↓
+검색 단계
+    ├─ SQLTool: MySQL 정형 데이터 조회
+    ├─ VectorRetriever: Chroma 문서 검색
+    └─ Hybrid Search: SQL + Vector 통합 검색
+    ↓
+ContextBuilder
+    ↓
+AnswerGenerator
+    ↓
+LLM 답변 생성
+    ↓
+답변 / 출처 / warning 반환
 ```
 
-수집하지 않은 KAIST 학과를 물어보면 충분한 데이터가 없음을 안내하고 KAIST 공식 홈페이지 또는 입학처 확인을 권장합니다.  
-KAIST와 관련 없는 질문은 챗봇 범위를 벗어난 질문으로 거절합니다.
+검색 route는 질문 유형에 따라 다음 중 하나로 결정됩니다.
 
-## 지원 질문 유형
+| route | 역할 |
+|---|---|
+| `sql` | 교수진, 교과목, 연락처처럼 정형 데이터 조회가 적합한 질문 처리 |
+| `vector` | PDF, 학과 소개, 모집요강 등 문서 기반 설명 질문 처리 |
+| `hybrid` | 정형 데이터와 문서 설명이 함께 필요한 질문 처리 |
+| `clarify` | 질문 대상이 불명확해 추가 확인이 필요한 질문 처리 |
 
-```text
-admission_info        입학, 모집, 지원자격, 전형, 일정
-course_info           교과목, 교육과정, 커리큘럼
-person_info           교수진, 구성원, 이메일, 연구실
-office_contact_info   학과 사무실, 전화번호, 위치
-event_info            공지, 행사, 설명회
-asset_or_link_info    링크, 자료, 다운로드, PDF
-department_overview   학과 소개, 개요, 특징
-kaist_profile_info    KAIST 기본 정보
-kaist_statistics_info KAIST 통계 정보
-kaist_link_info       KAIST 공식 링크
-general_info          그 외 일반 정보
-```
+---
 
-질문 분석 결과에 따라 route는 다음 중 하나로 결정됩니다.
+## 7. 프로젝트 구조
 
 ```text
-sql       정형 조회가 적합한 질문
-vector    문서 기반 설명이 필요한 질문
-hybrid    정형 조회와 문서 설명이 모두 필요한 질문
-clarify   질문 정보가 부족해 추가 확인이 필요한 질문
-```
-
-## 프로젝트 구조
-
-```text
-.
+SKN28-third-2TEAM/
 ├─ assets/
 │  └─ kaist.jpg
+│
 ├─ components/
 │  ├─ __init__.py
 │  ├─ layout.py
 │  └─ styles.py
+│
 ├─ data/
-│  ├─ build_vectorstore.py              # JSONL -> Chroma vectorstore 생성
+│  ├─ preprocessing.py
+│  ├─ build_vectorstore.py
 │  ├─ demo_knowledge.py
-│  ├─ preprocessing.py                  # 원본 CSV/PDF 전처리
-│  ├─ raw_data/                         # 원본 CSV/PDF 데이터
+│  │
+│  ├─ raw_data/
 │  │  ├─ admissions_clean.csv
 │  │  ├─ assets_clean.csv
 │  │  ├─ attachments_clean.csv
@@ -93,188 +139,247 @@ clarify   질문 정보가 부족해 추가 확인이 필요한 질문
 │  │  ├─ KAIST AX (AI Transformation).pdf
 │  │  ├─ 손지은_KAIST_공식홈페이지_조사 - 기본정보.csv
 │  │  └─ 손지은_KAIST_공식홈페이지_조사 - 학과사무실.csv
-│  ├─ processed/                        # 전처리 결과
-│  │  ├─ csv/                           # SQL 적재 및 정형 조회용 CSV
-│  │  │  ├─ admissions.csv
-│  │  │  ├─ assets.csv
-│  │  │  ├─ attachments.csv
-│  │  │  ├─ courses.csv
-│  │  │  ├─ course_track_map.csv
-│  │  │  ├─ department_offices.csv
-│  │  │  ├─ events.csv
-│  │  │  ├─ kaist_links.csv
-│  │  │  ├─ kaist_profile.csv
-│  │  │  ├─ kaist_statistics.csv
-│  │  │  ├─ people.csv
-│  │  │  └─ quality_report.csv
-│  │  ├─ json/                          # VectorStore 적재용 문서
-│  │  │  ├─ vector_documents.json
-│  │  │  └─ vector_documents.jsonl
-│  │  └─ reports/                       # 전처리/테스트 리포트
-│  │     ├─ pdf_page_report.csv
-│  │     ├─ preprocess_summary.csv
-│  │     └─ rag_test_results.json
-│  └─ vectorstore/                      # 로컬 Chroma DB 생성 위치, Git 업로드 제외
+│  │
+│  ├─ processed/
+│  │  ├─ csv/
+│  │  ├─ json/
+│  │  └─ reports/
+│  │
+│  └─ vectorstore/
 │     └─ chroma_db/
+│
 ├─ notebooks/
-│  ├─ rag_test.ipynb                    # RAG 검색/응답 실험 노트북
+│  ├─ rag_test.ipynb
 │  └─ chatbot_eval_outputs/
-│     └─ chatbot_test_results.csv       # 챗봇 테스트 결과 저장 파일
+│
 ├─ pages/
 │  ├─ 1_AI_College_Intro.py
 │  ├─ 2_Departments.py
-│  └─ 3_RAG_Chatbot.py                  # Streamlit RAG 챗봇 페이지
+│  └─ 3_RAG_Chatbot.py
+│
 ├─ sql/
-│  ├─ 01_schema.sql                     # MySQL 스키마 생성
-│  ├─ 02_load.sql                       # data/processed/csv 기반 데이터 적재
-│  ├─ 03_verify.sql                     # 적재 결과 검증
-│  ├─ clean_csv.ps1
+│  ├─ 01_schema.sql
+│  ├─ 02_load.sql
+│  ├─ 03_verify.sql
 │  ├─ ERD.md
 │  ├─ OPEN_ISSUES.md
 │  └─ README.md
+│
 ├─ src/
 │  └─ rag/
-│     ├─ query_analyzer.py              # 질문 의도, 학과, route 분석
-│     ├─ vector_retriever.py            # Chroma 기반 vector 검색, fallback, rerank
-│     ├─ sql_tool.py                    # MySQL 기반 SQL 조회
-│     ├─ context_builder.py             # 검색 결과를 LLM context로 변환
-│     ├─ answer_generator.py            # 프롬프트 및 LLM 답변 생성
-│     ├─ rag_pipeline.py                # 분석 -> 검색 -> context -> 답변 연결
-│     ├─ rag_tests.py                   # RAG 테스트 코드
-│     ├─ test.py
-│     └─ test.ipynb
+│     ├─ query_analyzer.py
+│     ├─ vector_retriever.py
+│     ├─ sql_tool.py
+│     ├─ context_builder.py
+│     ├─ answer_generator.py
+│     ├─ rag_pipeline.py
+│     └─ rag_tests.py
+│
 ├─ .streamlit/
 │  └─ config.toml
-├─ .env                                 # 로컬 환경변수, Git 업로드 제외
-├─ .env.example                         # 공유용 환경변수 예시
 ├─ .gitignore
 ├─ requirements.txt
-├─ streamlit_app.py                     # Streamlit 진입 파일
+├─ streamlit_app.py
 └─ README.md
 ```
 
-## 환경 설정
+---
 
-Python 환경을 활성화한 뒤 프로젝트 루트에서 작업합니다.
+## 8. 데이터 구성
+
+### 8.1 원본 데이터
+
+원본 데이터는 `data/raw_data/`에 저장되어 있습니다.
+
+| 데이터 | 설명 |
+|---|---|
+| `admissions_clean.csv` | 입학 및 모집 관련 정보 |
+| `courses_clean.csv` | 학과별 교과목 정보 |
+| `course_track_map.csv` | 교과목과 트랙 매핑 정보 |
+| `people_clean.csv` | 교수진 및 구성원 정보 |
+| `events_clean.csv` | 설명회, 행사, 공지 관련 정보 |
+| `assets_clean.csv` | 링크, 이미지, 홈페이지 자료 정보 |
+| `attachments_clean.csv` | 첨부파일 메타데이터 |
+| `quality_report.csv` | 데이터 품질 점검 결과 |
+| `*.pdf` | 학과 설명회 및 학과 소개 PDF 자료 |
+| `손지은_KAIST_공식홈페이지_조사 - 기본정보.csv` | KAIST 기본 정보 |
+| `손지은_KAIST_공식홈페이지_조사 - 학과사무실.csv` | 학과 사무실 연락처 정보 |
+
+### 8.2 전처리 결과
+
+전처리 결과는 `data/processed/` 아래에 저장됩니다.
+
+| 경로 | 역할 |
+|---|---|
+| `data/processed/csv/` | MySQL 적재용 정형 CSV |
+| `data/processed/json/` | VectorStore 생성용 JSON/JSONL |
+| `data/processed/reports/` | 전처리 리포트 및 테스트 결과 |
+
+주요 전처리 산출물 규모는 다음과 같습니다.
+
+| 파일 | 행/문서 수 |
+|---|---:|
+| `admissions.csv` | 74 |
+| `courses.csv` | 109 |
+| `course_track_map.csv` | 206 |
+| `people.csv` | 246 |
+| `events.csv` | 4 |
+| `assets.csv` | 494 |
+| `attachments.csv` | 4 |
+| `department_offices.csv` | 42 |
+| `kaist_profile.csv` | 28 |
+| `kaist_statistics.csv` | 16 |
+| `kaist_links.csv` | 7 |
+| `quality_report.csv` | 14 |
+| `vector_documents.jsonl` | 704 |
+
+---
+
+## 9. 기술 스택
+
+| 구분 | 사용 기술 |
+|---|---|
+| Language | Python |
+| Web UI | Streamlit |
+| LLM | OpenAI API |
+| RAG Framework | LangChain |
+| Vector DB | ChromaDB |
+| Embedding Model | `text-embedding-3-small` |
+| SQL DB | MySQL |
+| Data Processing | pandas, PyMuPDF |
+| Environment | python-dotenv |
+| Test/Experiment | Jupyter Notebook |
+
+---
+
+## 10. 설치 및 환경 설정
+
+### 10.1 프로젝트 클론 또는 압축 해제
 
 ```powershell
-cd <프로젝트_루트>
+cd C:\Users\Playdata\workspace\SKN28-third-2TEAM
 ```
 
-필요 패키지 설치:
+### 10.2 가상환경 활성화
+
+사용 중인 Python 가상환경을 활성화합니다.
+
+```powershell
+conda activate dl_nlp_env
+```
+
+또는 `venv`를 사용하는 경우:
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\activate
+```
+
+### 10.3 패키지 설치
 
 ```powershell
 pip install -r requirements.txt
 ```
 
-필요 패키지 예시:
+설치되는 주요 패키지는 다음과 같습니다.
 
-```powershell
-pip install python-dotenv langchain-core langchain-openai langchain-chroma chromadb pandas tqdm pymupdf streamlit pymysql sqlalchemy
+```text
+streamlit
+python-dotenv
+pandas
+pymysql
+tqdm
+langchain
+langchain-core
+langchain-openai
+langchain-chroma
+chromadb
+openai
+pymupdf
 ```
 
-패키지 설치 여부 확인:
+### 10.4 환경변수 설정
 
-```powershell
-python -c "import importlib.util as u; print({m: bool(u.find_spec(m)) for m in ['dotenv','langchain_core','langchain_openai','langchain_chroma','chromadb','streamlit','pymysql']})"
-```
-
-`python` 명령이 잡히지 않는 환경에서는 사용 중인 가상환경의 Python 실행 파일로 같은 명령을 실행하면 됩니다.
-
-## 환경변수
-
-프로젝트 루트에 `.env` 파일을 만들고 OpenAI API key와 MySQL 접속 정보를 설정합니다.
+프로젝트 루트에 `.env` 파일을 생성하고 다음 값을 입력합니다.
 
 ```env
-# OpenAI
-OPENAI_API_KEY=sk-여기에_본인_OpenAI_API_Key
+OPENAI_API_KEY=your_openai_api_key
 
-# MySQL
 KAIST_MYSQL_HOST=127.0.0.1
 KAIST_MYSQL_PORT=3306
 KAIST_MYSQL_USER=root
-KAIST_MYSQL_PASSWORD=본인_mysql_비밀번호
+KAIST_MYSQL_PASSWORD=your_mysql_password
 KAIST_MYSQL_DATABASE=kaist_ai
 KAIST_SQL_MAX_ROWS=100
 KAIST_MYSQL_CONNECT_TIMEOUT=5
 ```
 
-`.env` 파일은 개인 로컬 설정 파일이므로 Git에 업로드하지 않습니다.  
-공유가 필요한 경우 `.env.example`에 키 이름만 남기고 실제 key와 password는 넣지 않습니다.
+---
 
-## 데이터 전처리
+## 11. 데이터 전처리
 
-원본 데이터는 `data/raw_data/`에 두고, 전처리 결과는 `data/processed/` 아래에 저장합니다.
+원본 CSV와 PDF를 기반으로 SQL 적재용 CSV와 VectorStore 적재용 JSONL을 생성합니다.
 
 ```powershell
 python data\preprocessing.py
 ```
 
-전처리 결과는 크게 두 종류로 나뉩니다.
-
-```text
-data/processed/csv/    MySQL 적재 및 정형 조회용 데이터
-data/processed/json/   Chroma VectorStore 적재용 문서 데이터
-```
-
-전처리 후 확인할 주요 파일:
+전처리 후 생성되는 주요 파일은 다음과 같습니다.
 
 ```text
 data/processed/csv/admissions.csv
 data/processed/csv/courses.csv
 data/processed/csv/people.csv
 data/processed/csv/department_offices.csv
+data/processed/json/vector_documents.json
 data/processed/json/vector_documents.jsonl
 data/processed/reports/preprocess_summary.csv
 ```
 
-## MySQL DB 생성 및 적재
+---
 
-`SQLTool`을 사용하는 `sql` 또는 `hybrid` route 질문을 확인하려면 MySQL DB를 먼저 생성하고 `data/processed/csv/` 데이터를 적재합니다.
+## 12. MySQL DB 생성 및 데이터 적재
+
+정형 데이터 검색을 사용하려면 MySQL에 데이터베이스와 테이블을 생성한 뒤 CSV 데이터를 적재합니다.
+
+### 12.1 스키마 생성
 
 ```powershell
-mysql -u your_user -pyour_password --local-infile=1 -e "source sql/01_schema.sql; source sql/02_load.sql; source sql/03_verify.sql"
+mysql -u root -p --local-infile=1 < sql\01_schema.sql
 ```
 
-또는 MySQL에 접속한 뒤 순서대로 실행합니다.
+### 12.2 데이터 적재
 
-```sql
-source sql/01_schema.sql;
-source sql/02_load.sql;
-source sql/03_verify.sql;
+```powershell
+mysql -u root -p --local-infile=1 kaist_ai < sql\02_load.sql
 ```
 
-적재 확인 예시:
+### 12.3 적재 결과 검증
 
-```sql
-SELECT COUNT(*) FROM admission;
-SELECT COUNT(*) FROM course;
-SELECT COUNT(*) FROM people;
+```powershell
+mysql -u root -p --local-infile=1 kaist_ai < sql\03_verify.sql
 ```
 
-SQL 연결이 실패하거나 SQL 결과가 부족한 경우, 파이프라인은 설정에 따라 vector 검색으로 fallback할 수 있습니다.
+적재된 데이터는 `src/rag/sql_tool.py`의 `SQLTool`을 통해 조회됩니다.
 
-## Vectorstore 생성
+---
 
-전처리된 JSONL을 Chroma DB로 변환합니다.
+## 13. VectorStore 생성
 
-기본 입력:
-
-```text
-data/processed/json/vector_documents.jsonl
-```
-
-기본 출력:
-
-```text
-data/vectorstore/chroma_db
-```
-
-실행 명령어:
+비정형 문서 검색을 위해 `vector_documents.jsonl`을 Chroma VectorStore로 변환합니다.
 
 ```powershell
 python data\build_vectorstore.py --reset --smoke-test
 ```
+
+기본 설정은 다음과 같습니다.
+
+| 항목 | 값 |
+|---|---|
+| 입력 파일 | `data/processed/json/vector_documents.jsonl` |
+| 저장 위치 | `data/vectorstore/chroma_db` |
+| Collection | `kaist_graduate_info` |
+| Embedding Model | `text-embedding-3-small` |
 
 옵션을 명시해서 실행할 수도 있습니다.
 
@@ -288,47 +393,29 @@ python data\build_vectorstore.py `
   --smoke-test
 ```
 
-`--reset` 옵션은 기존 Chroma DB를 지우고 새로 생성합니다.  
-이미 생성된 DB를 유지하면서 테스트만 하고 싶다면 `--reset`을 빼고 실행합니다.
+---
 
-## RAG 파이프라인 흐름
+## 14. Streamlit 앱 실행
 
-```text
-사용자 질문
--> QueryAnalyzer
--> 답변 정책 검사
--> SQL 검색 또는 Vector 검색
--> SQL 실패/결과 부족 시 fallback 검색
--> ContextBuilder
--> AnswerGenerator
--> answer, sources, warnings 반환
+프로젝트 루트에서 다음 명령어를 실행합니다.
+
+```powershell
+python -m streamlit run streamlit_app.py
 ```
 
-질문 route에 따른 동작은 다음과 같습니다.
+브라우저에서 Streamlit 앱이 열리면 다음 페이지를 사용할 수 있습니다.
 
-```text
-sql
-  정형 데이터 조회가 적합한 질문입니다.
-  예: 특정 학과 교수 목록, 연락처, 과목명, 일정 등
+| 페이지 | 설명 |
+|---|---|
+| AI College Intro | KAIST AI 관련 학과 프로젝트 소개 |
+| Departments | 학과별 정보 요약 |
+| RAG Chatbot | 자연어 질문 기반 RAG 챗봇 |
 
-vector
-  문서 기반 설명이 필요한 질문입니다.
-  예: 학과 소개, 모집 요강 설명, PDF 기반 상세 안내 등
+---
 
-hybrid
-  SQL 조회와 문서 설명이 모두 필요한 질문입니다.
-  예: 학과별 교과목 목록과 교육과정 설명을 함께 묻는 질문
+## 15. RAG 파이프라인 사용 예시
 
-clarify
-  학과명, 질문 대상, 조건 등이 부족해 바로 검색하기 어려운 질문입니다.
-```
-
-SQL 검색기는 `src/rag/sql_tool.py`의 `SQLTool`을 통해 MySQL과 연결됩니다.  
-`create_default_pipeline(include_sql=True)`를 사용하면 SQLTool 연결을 시도하고, SQL 결과가 없거나 SQL 연결이 실패한 경우 설정에 따라 Vector 검색으로 fallback합니다.
-
-## 기본 사용법
-
-파이프라인은 `RagPipeline` 또는 `create_default_pipeline()`을 통해 실행합니다.
+Streamlit 없이 Python 코드에서 직접 파이프라인을 사용할 수도 있습니다.
 
 ```python
 from src.rag.rag_pipeline import create_default_pipeline
@@ -341,262 +428,173 @@ print(result.sources)
 print(result.warnings)
 ```
 
-PowerShell에서 간단 실행:
-
-```powershell
-python -c "from src.rag.rag_pipeline import create_default_pipeline; p=create_default_pipeline(include_sql=True); r=p.run('AI컴퓨팅학과 석사 지원 자격은?'); print(r.answer); print(r.warnings)"
-```
-
-질문 분류만 확인:
-
-```powershell
-python -c "from src.rag.rag_pipeline import create_default_pipeline; p=create_default_pipeline(include_sql=True); a=p.classify_question('교수진도 알려줘'); print(a.to_dict())"
-```
-
-첫 질문 응답 지연을 줄이려면 앱 시작 시점에 vector retriever를 미리 초기화할 수 있습니다.
+질문 분석 결과만 확인할 수도 있습니다.
 
 ```python
 from src.rag.rag_pipeline import create_default_pipeline
 
 pipeline = create_default_pipeline(include_sql=True)
-warm_up_result = pipeline.warm_up(
-    sample_question="AI컴퓨팅학과 입학 정보",
-)
+analysis = pipeline.classify_question("AI시스템학과 교과목 알려줘")
+
+print(analysis.to_dict())
 ```
 
-`sample_question`을 넣으면 Chroma 연결뿐 아니라 첫 vector 검색까지 미리 실행합니다. 따라서 실제 첫 사용자 질문에서는 retriever 초기화 비용이 덜 걸립니다.
+---
 
-## 테스트 실행
-
-테스트 노트북:
-
-```text
-notebooks/rag_test.ipynb
-```
-
-챗봇 평가 결과 저장 파일:
-
-```text
-notebooks/chatbot_eval_outputs/chatbot_test_results.csv
-```
-
-테스트 파일은 다음 질문들을 확인합니다.
-
-```text
-AI컴퓨팅학과 합격 여부 알려줘
-내 GPA 3.8인데 AI컴퓨팅학과 붙을 수 있어?
-AI컴퓨팅학과 합격자 발표 일정 알려줘
-AI컴퓨팅학과 석사 지원 자격은?
-교수진도 알려줘
-AI컴퓨팅학과 사무실 연락처 알려줘
-```
-
-예상 동작:
-
-- `합격 여부`, `붙을 수 있어?` 같은 개인별 판정 질문은 차단됩니다.
-- `합격자 발표 일정`은 공식 일정 질문이므로 차단되지 않습니다.
-- 학과명이 생략된 후속 질문은 이전 대화 맥락의 학과 정보를 활용할 수 있습니다.
-- SQL 연결이 준비되어 있으면 정형 데이터 질문은 SQL 결과를 우선 활용합니다.
-- vectorstore 또는 API 연결이 안 되어 있으면 warning이 출력됩니다.
-
-## 주요 모듈
+## 16. 주요 모듈 설명
 
 ### `src/rag/query_analyzer.py`
 
-사용자 질문을 분석합니다.
+사용자 질문을 분석하는 모듈입니다.
 
 - 학과명 추출
 - 질문 intent 분류
-- 애매한 질문에 대한 예시 유사도 매칭
-- route 결정: `sql`, `vector`, `hybrid`, `clarify`
+- 검색 route 결정
+- 질문 범위 검사
 - metadata filter 생성
-- SQL 조회 조건 생성
-- 수집 범위 밖 KAIST 학과, KAIST 외 질문, 너무 넓은 질문 처리
-
-### `src/rag/vector_retriever.py`
-
-Chroma vectorstore에서 관련 문서를 검색합니다.
-
-- OpenAI embedding 사용
-- metadata filter 검색
-- 학과/intent 기반 필터링
-- 검색 결과가 부족할 때 fallback 검색
-- 점수 기반 lightweight rerank
-- LLM context에 넣기 좋은 검색 결과 형태로 정리
+- 후속 질문 처리를 위한 분석 정보 제공
 
 ### `src/rag/sql_tool.py`
 
-MySQL에 적재된 정형 데이터를 조회합니다.
+MySQL에 저장된 정형 데이터를 조회하는 모듈입니다.
 
-- 학과별 입학 정보 조회
-- 학과별 교과목 조회
-- 교수진/구성원 정보 조회
-- 학과 사무실, 연락처, 위치 조회
-- 공식 링크 및 기본 정보 조회
-- SQL 결과 row 수 제한
-- SQL 연결 실패 시 warning 반환
+- 입학 정보 조회
+- 교과목 조회
+- 교수진 조회
+- 사무실 연락처 조회
+- KAIST 기본 정보 및 링크 조회
+
+### `src/rag/vector_retriever.py`
+
+Chroma VectorStore에서 문서를 검색하는 모듈입니다.
+
+- OpenAI embedding 기반 유사도 검색
+- 학과 및 문서 유형 기반 metadata filtering
+- 검색 결과 부족 시 fallback 검색
+- lightweight rerank 수행
 
 ### `src/rag/context_builder.py`
 
-검색 결과를 LLM에 넣을 context로 변환합니다.
+SQL 조회 결과와 Vector 검색 결과를 LLM 입력 context로 변환하는 모듈입니다.
 
-- vector 문서 포맷팅
 - SQL 결과 Markdown table 변환
-- source/warning 정리
-- 수집일, 파일명, 페이지, section 등 metadata 포함
+- Vector 문서 내용 정리
+- 출처 정보 정리
+- warning 메시지 구성
 - context 길이 제한
-- SQL 결과와 vector 문서를 함께 사용할 수 있는 hybrid context 구성
 
 ### `src/rag/answer_generator.py`
 
-LLM 답변을 생성합니다.
+검색 결과를 바탕으로 최종 답변을 생성하는 모듈입니다.
 
-- system/human prompt 구성
-- intent별 답변 지시
-- 비교 질문 지시
-- 애매한 질문 유형별 안내 지시
-- 출처 및 warning 반영
-- 개인별 합격 판정 질문 차단
-- streaming 답변 생성
+- system prompt 구성
+- intent별 답변 지침 적용
+- 출처 기반 답변 생성
+- streaming 답변 생성 지원
+- 개인별 합격 예측 질문 차단
 
 ### `src/rag/rag_pipeline.py`
 
-전체 RAG 흐름을 연결합니다.
+RAG 전체 흐름을 연결하는 모듈입니다.
+
+- 질문 분석
+- 검색 실행
+- context 생성
+- LLM 답변 생성
+- 결과 객체 반환
+- Streamlit 연동용 streaming 실행
+
+---
+
+## 17. 테스트 및 평가
+
+테스트 노트북과 평가 결과는 `notebooks/` 아래에서 관리됩니다.
 
 ```text
-질문 입력
--> 질문 분석
--> 정책 검사
--> SQL/vector 검색
--> fallback 검색
--> context 구성
--> 답변 생성
--> answer/sources/warnings 반환
+notebooks/rag_test.ipynb
+notebooks/chatbot_eval_outputs/chatbot_test_results.csv
 ```
 
-주요 메서드:
+평가 파일은 예상 질문 100개에 대한 자동 평가 결과를 포함합니다.
+
+| 평가 결과 | 개수 |
+|---|---:|
+| `PASS_ANSWER` | 47 |
+| `PASS_DATA_MISSING` | 15 |
+| `PASS_REJECT` | 7 |
+| `PARTIAL_NO_DIRECT_EVIDENCE` | 6 |
+| `FAIL_DATA_MISSING_OR_RETRIEVAL` | 19 |
+| `FAIL_DATA_MISSING_NOT_DETECTED` | 3 |
+| `FAIL_SHOULD_REJECT` | 3 |
+
+평가 결과에는 질문 category, route, intent, SQL row 수, vector 검색 결과 수, fallback 여부, 출처 수, 응답 시간 등이 함께 저장됩니다.
+
+---
+
+## 18. 답변 정책
+
+챗봇은 수집된 KAIST AI 관련 학과 자료를 기반으로 답변합니다.
+
+다음과 같은 질문은 답변 범위에서 제외합니다.
 
 ```text
-classify_question()
-warm_up()
-search()
-build_context()
-generate_answer()
-generate_answer_streaming()
-run()
-run_streaming()
-run_dict()
-```
-
-## Streamlit 실행
-
-Streamlit 진입 파일은 `streamlit_app.py`입니다.
-
-Windows:
-
-```powershell
-python -m streamlit run streamlit_app.py
-```
-
-Mac/Linux:
-
-```bash
-python3 -m streamlit run streamlit_app.py
-```
-
-프로젝트 루트에서 실행하면 `.streamlit/config.toml` 설정이 자동 적용됩니다. 현재 설정은 Streamlit 파일 감시기를 끄도록 되어 있어, 응답 생성 중 `Accessing __path__ from .models.aria.image_processing_aria` 경고 이후 로컬 서버 연결이 끊기는 문제를 피합니다.
-
-설정을 명령어에 직접 명시해야 하는 경우:
-
-```powershell
-python -m streamlit run streamlit_app.py --server.fileWatcherType none
-```
-
-## Streamlit RAG 연결
-
-현재 `pages/3_RAG_Chatbot.py`는 `RagPipeline.run_streaming()`을 호출해 실제 RAG 흐름과 연결되어 있습니다.
-
-Streamlit 챗봇 페이지는 사용자 질문을 받아 질문 분석, 검색, context 구성, 답변 생성을 실행하고 답변, 출처, warning을 화면에 표시합니다. 답변 생성 중에는 진행 상태를 보여주고, LLM 답변은 가능한 경우 streaming 방식으로 화면에 순차 출력합니다.
-
-한 대화 세션 안에서는 이전 학과 맥락을 유지합니다. 예를 들어 처음에 `AI컴퓨팅학과 입학 정보`를 물은 뒤 `교수진도 알려줘`처럼 후속 질문을 하면 최근 학과 정보를 활용할 수 있습니다.
-
-동일 질문 캐시를 사용할 수 있습니다. Streamlit 화면의 `동일 질문 캐시` 토글을 끄면 테스트 중 같은 질문도 다시 검색하고 답변을 생성합니다. `캐시 비우기` 버튼을 누르면 현재 세션에 저장된 캐시가 삭제됩니다.
-
-첫 질문 지연을 줄이기 위해 Streamlit의 `get_pipeline()`은 `st.cache_resource`로 캐시되며, 생성 시점에 `pipeline.warm_up(sample_question="AI컴퓨팅학과 입학 정보")`를 실행합니다.
-
-핵심 연결 구조는 다음과 같습니다.
-
-```python
-@st.cache_resource(show_spinner="RAG 검색기를 초기화하는 중입니다...")
-def get_pipeline() -> RagPipeline:
-    pipeline = create_default_pipeline(include_sql=True)
-    pipeline.warm_up(sample_question="AI컴퓨팅학과 입학 정보")
-    return pipeline
-```
-
-## 답변 안전 정책
-
-다음 질문은 검색 결과가 있더라도 답변하지 않습니다.
-
-```text
-합격 여부
-합격 가능성
+개인별 합격 가능성
 합격 확률
-선발 가능성
-내 스펙으로 붙을지
-GPA, 학점, 경력 기반 개인별 합격 예측
+내 학점이나 스펙 기반 합격 여부
+수집되지 않은 학과에 대한 단정적 답변
+KAIST AI 관련 학과와 무관한 일반 질문
 ```
 
-허용 대상:
+허용되는 질문은 다음과 같습니다.
 
 ```text
-지원 자격
+입학 지원 자격
 전형 절차
 모집 일정
-합격자 발표 일정
 제출서류
-학과별 교과목
-교수진/연락처 정보
-자료 링크
+교과목 및 커리큘럼
+교수진 및 연구분야
+학과 사무실 연락처
+학과 소개
+공식 홈페이지 및 자료 링크
 ```
 
-## 수정 후 확인 기준
+---
 
-코드 수정 후에는 아래 순서로 확인합니다.
+## 19. 실행 흐름 요약
+
+처음 실행하는 경우 다음 순서로 진행합니다.
 
 ```powershell
-python -m compileall src
-python src\rag\test.py
+# 1. 패키지 설치
+pip install -r requirements.txt
+
+# 2. 환경변수 설정
+# 프로젝트 루트에 .env 파일 생성
+
+# 3. 데이터 전처리
+python data\preprocessing.py
+
+# 4. MySQL 스키마 생성 및 데이터 적재
+mysql -u root -p --local-infile=1 < sql\01_schema.sql
+mysql -u root -p --local-infile=1 kaist_ai < sql\02_load.sql
+mysql -u root -p --local-infile=1 kaist_ai < sql\03_verify.sql
+
+# 5. VectorStore 생성
+python data\build_vectorstore.py --reset --smoke-test
+
+# 6. Streamlit 앱 실행
 python -m streamlit run streamlit_app.py
 ```
 
-VectorStore를 새로 만든 경우에는 먼저 smoke test를 실행합니다.
+---
 
-```powershell
-python data\build_vectorstore.py --reset --smoke-test
-```
+## 20. 프로젝트 특징
 
-SQL을 수정한 경우에는 DB 적재 검증을 먼저 수행합니다.
+이 프로젝트는 단순 문서 검색형 RAG가 아니라, 질문 유형에 따라 정형 데이터와 비정형 문서를 분리해서 활용하는 구조를 갖습니다.
 
-```powershell
-mysql -u your_user -pyour_password --local-infile=1 -e "source sql/03_verify.sql"
-```
+- 교수진, 교과목, 연락처처럼 표 형태로 관리하기 좋은 정보는 MySQL에서 조회합니다.
+- 모집요강, 학과 소개, 설명회 PDF처럼 문맥 기반 설명이 필요한 정보는 Chroma VectorStore에서 검색합니다.
+- 두 정보가 함께 필요한 질문은 Hybrid 방식으로 SQL 결과와 Vector 문서를 함께 context에 넣습니다.
+- 답변 생성 단계에서는 출처와 warning을 함께 제공해 사용자가 답변 근거를 확인할 수 있도록 구성했습니다.
 
-Git commit 전 확인:
-
-```powershell
-git status
-git diff --stat
-```
-
-## 주의사항
-
-- `.env` 파일은 업로드하지 않습니다.
-- OpenAI API key, MySQL password는 README나 코드에 직접 작성하지 않습니다.
-- `data/vectorstore/`, `chroma_db/`는 로컬 생성 산출물이므로 Git 업로드에서 제외합니다.
-- 실제 답변 테스트 전 `OPENAI_API_KEY`와 Chroma DB가 준비되어 있어야 합니다.
-- SQL 검색을 사용하려면 MySQL DB 생성, CSV 적재, `.env` 접속 정보 설정이 필요합니다.
-- SQL 연결이 안 된 상태에서도 vector 검색 기반 답변은 동작할 수 있도록 fallback 구조를 유지합니다.
-- `합격 가능성` 같은 개인별 판정 질문은 검색 결과가 있어도 답변하지 않도록 정책 차단됩니다.
-- 프롬프트, 검색, context 구성을 수정한 뒤 답변 변화를 확인할 때는 Streamlit의 `동일 질문 캐시` 토글을 끄거나 `캐시 비우기`를 누른 뒤 테스트합니다.
-- 노트북과 평가 결과 CSV는 테스트 산출물이므로 main에 올릴지 여부를 commit 전에 확인합니다.

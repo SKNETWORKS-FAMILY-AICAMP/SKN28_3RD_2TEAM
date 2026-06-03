@@ -224,7 +224,7 @@ CREATE TABLE stg_kaist_links (
 -- 경로가 다르면 C:/Users/Playdata/workspace/SKN28-third-2TEAM 부분만 수정
 -- ============================================================
 
-LOAD DATA LOCAL INFILE 'C:/Users/Playdata/workspace/SKN28-third-2TEAM/data/processed/csv/admissions.csv'
+LOAD DATA LOCAL INFILE 'data/processed/csv/admissions.csv'
 INTO TABLE stg_admissions
 CHARACTER SET utf8mb4
 FIELDS TERMINATED BY ',' OPTIONALLY ENCLOSED BY '"'
@@ -235,49 +235,50 @@ IGNORE 1 LINES
  admission_type_norm, schedule_date_raw, min_gpa, admission_id);
 
 
-LOAD DATA LOCAL INFILE 'C:/Users/Playdata/workspace/SKN28-third-2TEAM/data/processed/csv/courses.csv'
+LOAD DATA LOCAL INFILE 'data/processed/csv/courses.csv'
 INTO TABLE stg_courses
 CHARACTER SET utf8mb4
 FIELDS TERMINATED BY ',' OPTIONALLY ENCLOSED BY '"'
 LINES TERMINATED BY '\n'
 IGNORE 1 LINES
 (record_id, dept_name, dept, course_level, course_code, course_name, course_type,
- credit, course_description, source_url, crawled_at, source_sheet, missing_fields,
+ credit, course_description, @raw_values, source_url, crawled_at, missing_fields,
  course_code_norm, course_id);
 
 
-LOAD DATA LOCAL INFILE 'C:/Users/Playdata/workspace/SKN28-third-2TEAM/data/processed/csv/course_track_map.csv'
+LOAD DATA LOCAL INFILE 'data/processed/csv/course_track_map.csv'
 INTO TABLE stg_course_track_map
 CHARACTER SET utf8mb4
 FIELDS TERMINATED BY ',' OPTIONALLY ENCLOSED BY '"'
 LINES TERMINATED BY '\n'
 IGNORE 1 LINES
-(record_id, dept_name, dept, track_name, course_code, course_name, course_type,
- course_description, source_url, crawled_at, course_code_norm, course_track_id, missing_fields);
+(dept_name, dept, course_code, course_name, track_name, course_type,
+ course_description, source_url, record_id, crawled_at, course_code_norm,
+ course_track_id, missing_fields);
 
 
-LOAD DATA LOCAL INFILE 'C:/Users/Playdata/workspace/SKN28-third-2TEAM/data/processed/csv/people.csv'
+LOAD DATA LOCAL INFILE 'data/processed/csv/people.csv'
 INTO TABLE stg_people
 CHARACTER SET utf8mb4
 FIELDS TERMINATED BY ',' OPTIONALLY ENCLOSED BY '"'
 LINES TERMINATED BY '\n'
 IGNORE 1 LINES
 (record_id, dept_name, dept, name, name_ko, name_en, role, role_normalized,
- faculty_group, email, phone, office, research_area, homepage, source_url,
- crawled_at, source_sheet, missing_fields, person_id);
+ faculty_group, email, phone, office, research_area, homepage, @image_url,
+ source_url, crawled_at, missing_fields, person_id);
 
 
-LOAD DATA LOCAL INFILE 'C:/Users/Playdata/workspace/SKN28-third-2TEAM/data/processed/csv/events.csv'
+LOAD DATA LOCAL INFILE 'data/processed/csv/events.csv'
 INTO TABLE stg_events
 CHARACTER SET utf8mb4
 FIELDS TERMINATED BY ',' OPTIONALLY ENCLOSED BY '"'
 LINES TERMINATED BY '\n'
 IGNORE 1 LINES
-(record_id, dept_name, dept, event_type, page_title, title, event_date,
- summary, content, source_url, crawled_at, missing_fields, event_id);
+(record_id, dept_name, dept, event_type, page_title, title, content,
+ event_date, source_url, crawled_at, missing_fields, event_id);
 
 
-LOAD DATA LOCAL INFILE 'C:/Users/Playdata/workspace/SKN28-third-2TEAM/data/processed/csv/assets.csv'
+LOAD DATA LOCAL INFILE 'data/processed/csv/assets.csv'
 INTO TABLE stg_assets
 CHARACTER SET utf8mb4
 FIELDS TERMINATED BY ',' OPTIONALLY ENCLOSED BY '"'
@@ -288,18 +289,24 @@ IGNORE 1 LINES
  is_vector_candidate);
 
 
-LOAD DATA LOCAL INFILE 'C:/Users/Playdata/workspace/SKN28-third-2TEAM/data/processed/csv/attachments.csv'
+LOAD DATA LOCAL INFILE 'data/processed/csv/attachments.csv'
 INTO TABLE stg_attachments
 CHARACTER SET utf8mb4
 FIELDS TERMINATED BY ',' OPTIONALLY ENCLOSED BY '"'
 LINES TERMINATED BY '\n'
 IGNORE 1 LINES
-(record_id, dept_name, dept, board, filename, ext, size, url, source_url,
- text_preview, crawled_at, source_sheet, missing_fields, attachment_id,
- use_text_preview_for_vectorstore, note);
+(@dept, @board, @post_id, filename, url, ext, size, @content_type,
+ @download_status, @local_path, @text_extraction_status, @text_cache_path,
+ text_preview, crawled_at, missing_fields, attachment_id,
+ use_text_preview_for_vectorstore, note)
+SET
+    dept = @dept,
+    board = @board,
+    record_id = @post_id,
+    source_url = url;
 
 
-LOAD DATA LOCAL INFILE 'C:/Users/Playdata/workspace/SKN28-third-2TEAM/data/processed/csv/department_offices.csv'
+LOAD DATA LOCAL INFILE 'data/processed/csv/department_offices.csv'
 INTO TABLE stg_department_offices
 CHARACTER SET utf8mb4
 FIELDS TERMINATED BY ',' OPTIONALLY ENCLOSED BY '"'
@@ -308,7 +315,7 @@ IGNORE 1 LINES
 (program_name, phone, website, building_location, office_id, source, source_page, missing_fields);
 
 
-LOAD DATA LOCAL INFILE 'C:/Users/Playdata/workspace/SKN28-third-2TEAM/data/processed/csv/kaist_profile.csv'
+LOAD DATA LOCAL INFILE 'data/processed/csv/kaist_profile.csv'
 INTO TABLE stg_kaist_profile
 CHARACTER SET utf8mb4
 FIELDS TERMINATED BY ',' OPTIONALLY ENCLOSED BY '"'
@@ -317,7 +324,7 @@ IGNORE 1 LINES
 (item, content, note, source_url, source);
 
 
-LOAD DATA LOCAL INFILE 'C:/Users/Playdata/workspace/SKN28-third-2TEAM/data/processed/csv/kaist_statistics.csv'
+LOAD DATA LOCAL INFILE 'data/processed/csv/kaist_statistics.csv'
 INTO TABLE stg_kaist_statistics
 CHARACTER SET utf8mb4
 FIELDS TERMINATED BY ',' OPTIONALLY ENCLOSED BY '"'
@@ -326,7 +333,7 @@ IGNORE 1 LINES
 (stat_group, level, value_raw, value_number, note, source);
 
 
-LOAD DATA LOCAL INFILE 'C:/Users/Playdata/workspace/SKN28-third-2TEAM/data/processed/csv/kaist_links.csv'
+LOAD DATA LOCAL INFILE 'data/processed/csv/kaist_links.csv'
 INTO TABLE stg_kaist_links
 CHARACTER SET utf8mb4
 FIELDS TERMINATED BY ',' OPTIONALLY ENCLOSED BY '"'
@@ -521,7 +528,7 @@ INSERT IGNORE INTO department_offices (
     source, source_page, missing_fields
 )
 SELECT
-    COALESCE(NULLIF(office_id, ''), MD5(CONCAT_WS('|', program_name, phone, website, building_location))),
+    MD5(CONCAT_WS('|', program_name, phone, website, building_location)) AS office_id,
     program_name,
     phone,
     website,
@@ -529,7 +536,10 @@ SELECT
     source,
     source_page,
     missing_fields
-FROM stg_department_offices;
+FROM stg_department_offices
+WHERE program_name IS NOT NULL
+  AND program_name <> ''
+  AND program_name <> '학과/프로그램';
 
 
 -- ============================================================

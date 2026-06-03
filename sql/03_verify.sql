@@ -20,9 +20,6 @@ UNION ALL SELECT 'admission',    COUNT(*) FROM admission
 UNION ALL SELECT 'event',        COUNT(*) FROM event
 UNION ALL SELECT 'asset',        COUNT(*) FROM asset
 UNION ALL SELECT 'attachment',   COUNT(*) FROM attachment
-UNION ALL SELECT 'rag_document', COUNT(*) FROM rag_document
-UNION ALL SELECT 'rag_chunk',    COUNT(*) FROM rag_chunk
-UNION ALL SELECT 'quality_report', COUNT(*) FROM quality_report;
 -- UNION ALL 을 쓴 이유: 중복 제거가 필요 없고(테이블명이 모두 다름),
 -- 중복 검사를 생략해 UNION 보다 빠르다. → 시험 단골 비교 포인트.
 
@@ -122,14 +119,9 @@ ORDER BY x.cnt DESC;
 
 
 -- ---------------------------------------------------------------------
--- [J] 정규화(3NF) 정리 결과 확인 : 학과별 RAG 청크 수
---   rag_chunk 에서 dept 를 제거했으므로 학과는 rag_document 를 거쳐 얻는다.
---     rag_chunk → (doc_id) → rag_document → (dept) → department
---   "중복 컬럼을 지워도 JOIN 으로 같은 정보를 얻는다"는 정규화의 핵심을 보여준다.
+-- [J] 연락처 테이블 적재 확인
 -- ---------------------------------------------------------------------
-SELECT d.dept_name, COUNT(*) AS chunk_count
-FROM rag_chunk ch
-JOIN rag_document rd ON rd.doc_id = ch.doc_id
-JOIN department  d  ON d.dept    = rd.dept
-GROUP BY d.dept_name
-ORDER BY chunk_count DESC;
+SELECT program_name, phone, website, building_location
+FROM department_offices
+ORDER BY program_name
+LIMIT 20;
