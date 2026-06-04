@@ -1,5 +1,81 @@
 ﻿file_name,dept,dept_name,page,status,char_len,message
-AI_Computing_Grad_Info_Session_20260320(1).pdf,aic,AI컴퓨팅학과,,missing_file,0,PDF 파일을 찾을 수 없습니다: C:\Users\Playdata\workspace\SKN28-third-2TEAM\data\raw_data\AI_Computing_Grad_Info_Session_20260320(1).pdf
-AI_Systems_Grad_Info_20260319(1).pdf,ai_systems,AI시스템학과,,missing_file,0,PDF 파일을 찾을 수 없습니다: C:\Users\Playdata\workspace\SKN28-third-2TEAM\data\raw_data\AI_Systems_Grad_Info_20260319(1).pdf
-KAIST AI & FUTURES STUDIES(1).pdf,fx,AI미래학과,,missing_file,0,PDF 파일을 찾을 수 없습니다: C:\Users\Playdata\workspace\SKN28-third-2TEAM\data\raw_data\KAIST AI & FUTURES STUDIES(1).pdf
-KAIST AX (AI Transformation)(1).pdf,ax,AX학과,,missing_file,0,PDF 파일을 찾을 수 없습니다: C:\Users\Playdata\workspace\SKN28-third-2TEAM\data\raw_data\KAIST AX (AI Transformation)(1).pdf
+AI_Computing_Grad_Info_Session_20260320.pdf,aic,AI컴퓨팅학과,1,empty_or_too_short,23,텍스트가 없거나 너무 짧습니다.
+AI_Computing_Grad_Info_Session_20260320.pdf,aic,AI컴퓨팅학과,2,ok,395,1 chunks
+AI_Computing_Grad_Info_Session_20260320.pdf,aic,AI컴퓨팅학과,3,ok,226,1 chunks
+AI_Computing_Grad_Info_Session_20260320.pdf,aic,AI컴퓨팅학과,4,ok,276,1 chunks
+AI_Computing_Grad_Info_Session_20260320.pdf,aic,AI컴퓨팅학과,5,ok,79,1 chunks
+AI_Computing_Grad_Info_Session_20260320.pdf,aic,AI컴퓨팅학과,6,ok,597,1 chunks
+AI_Computing_Grad_Info_Session_20260320.pdf,aic,AI컴퓨팅학과,7,ok,351,1 chunks
+AI_Computing_Grad_Info_Session_20260320.pdf,aic,AI컴퓨팅학과,8,ok,116,1 chunks
+AI_Computing_Grad_Info_Session_20260320.pdf,aic,AI컴퓨팅학과,9,ok,115,1 chunks
+AI_Computing_Grad_Info_Session_20260320.pdf,aic,AI컴퓨팅학과,10,ok,107,1 chunks
+AI_Computing_Grad_Info_Session_20260320.pdf,aic,AI컴퓨팅학과,11,ok,204,1 chunks
+AI_Computing_Grad_Info_Session_20260320.pdf,aic,AI컴퓨팅학과,12,ok,401,1 chunks
+AI_Computing_Grad_Info_Session_20260320.pdf,aic,AI컴퓨팅학과,13,ok,518,1 chunks
+AI_Computing_Grad_Info_Session_20260320.pdf,aic,AI컴퓨팅학과,14,ok,40,1 chunks
+AI_Computing_Grad_Info_Session_20260320.pdf,aic,AI컴퓨팅학과,15,ok,538,1 chunks
+AI_Computing_Grad_Info_Session_20260320.pdf,aic,AI컴퓨팅학과,16,empty_or_too_short,16,텍스트가 없거나 너무 짧습니다.
+AI_Computing_Grad_Info_Session_20260320.pdf,aic,AI컴퓨팅학과,17,ok,796,1 chunks
+AI_Computing_Grad_Info_Session_20260320.pdf,aic,AI컴퓨팅학과,18,ok,320,1 chunks
+AI_Computing_Grad_Info_Session_20260320.pdf,aic,AI컴퓨팅학과,19,ok,953,1 chunks
+AI_Computing_Grad_Info_Session_20260320.pdf,aic,AI컴퓨팅학과,20,ok,242,1 chunks
+AI_Computing_Grad_Info_Session_20260320.pdf,aic,AI컴퓨팅학과,21,ok,101,1 chunks
+AI_Computing_Grad_Info_Session_20260320.pdf,aic,AI컴퓨팅학과,22,ok,454,1 chunks
+AI_Computing_Grad_Info_Session_20260320.pdf,aic,AI컴퓨팅학과,23,ok,313,1 chunks
+AI_Computing_Grad_Info_Session_20260320.pdf,aic,AI컴퓨팅학과,24,ok,496,1 chunks
+AI_Computing_Grad_Info_Session_20260320.pdf,aic,AI컴퓨팅학과,25,ok,235,1 chunks
+AI_Computing_Grad_Info_Session_20260320.pdf,aic,AI컴퓨팅학과,26,ok,370,1 chunks
+AI_Computing_Grad_Info_Session_20260320.pdf,aic,AI컴퓨팅학과,27,ok,394,1 chunks
+AI_Computing_Grad_Info_Session_20260320.pdf,aic,AI컴퓨팅학과,28,ok,606,1 chunks
+AI_Computing_Grad_Info_Session_20260320.pdf,aic,AI컴퓨팅학과,29,ok,540,1 chunks
+AI_Computing_Grad_Info_Session_20260320.pdf,aic,AI컴퓨팅학과,30,ok,167,1 chunks
+AI_Systems_Grad_Info_20260319.pdf,ai_systems,AI시스템학과,1,ok,81,1 chunks
+AI_Systems_Grad_Info_20260319.pdf,ai_systems,AI시스템학과,2,empty_or_too_short,14,텍스트가 없거나 너무 짧습니다.
+AI_Systems_Grad_Info_20260319.pdf,ai_systems,AI시스템학과,3,ok,201,1 chunks
+AI_Systems_Grad_Info_20260319.pdf,ai_systems,AI시스템학과,4,ok,243,1 chunks
+AI_Systems_Grad_Info_20260319.pdf,ai_systems,AI시스템학과,5,ok,344,1 chunks
+AI_Systems_Grad_Info_20260319.pdf,ai_systems,AI시스템학과,6,ok,86,1 chunks
+AI_Systems_Grad_Info_20260319.pdf,ai_systems,AI시스템학과,7,ok,57,1 chunks
+AI_Systems_Grad_Info_20260319.pdf,ai_systems,AI시스템학과,8,ok,46,1 chunks
+AI_Systems_Grad_Info_20260319.pdf,ai_systems,AI시스템학과,9,empty_or_too_short,21,텍스트가 없거나 너무 짧습니다.
+AI_Systems_Grad_Info_20260319.pdf,ai_systems,AI시스템학과,10,ok,79,1 chunks
+AI_Systems_Grad_Info_20260319.pdf,ai_systems,AI시스템학과,11,ok,169,1 chunks
+AI_Systems_Grad_Info_20260319.pdf,ai_systems,AI시스템학과,12,empty_or_too_short,29,텍스트가 없거나 너무 짧습니다.
+AI_Systems_Grad_Info_20260319.pdf,ai_systems,AI시스템학과,13,ok,572,1 chunks
+AI_Systems_Grad_Info_20260319.pdf,ai_systems,AI시스템학과,14,ok,176,1 chunks
+AI_Systems_Grad_Info_20260319.pdf,ai_systems,AI시스템학과,15,ok,203,1 chunks
+AI_Systems_Grad_Info_20260319.pdf,ai_systems,AI시스템학과,16,empty_or_too_short,13,텍스트가 없거나 너무 짧습니다.
+AI_Systems_Grad_Info_20260319.pdf,ai_systems,AI시스템학과,17,ok,238,1 chunks
+AI_Systems_Grad_Info_20260319.pdf,ai_systems,AI시스템학과,18,ok,200,1 chunks
+AI_Systems_Grad_Info_20260319.pdf,ai_systems,AI시스템학과,19,ok,90,1 chunks
+AI_Systems_Grad_Info_20260319.pdf,ai_systems,AI시스템학과,20,empty_or_too_short,26,텍스트가 없거나 너무 짧습니다.
+AI_Systems_Grad_Info_20260319.pdf,ai_systems,AI시스템학과,21,empty_or_too_short,30,텍스트가 없거나 너무 짧습니다.
+AI_Systems_Grad_Info_20260319.pdf,ai_systems,AI시스템학과,22,empty_or_too_short,26,텍스트가 없거나 너무 짧습니다.
+AI_Systems_Grad_Info_20260319.pdf,ai_systems,AI시스템학과,23,empty_or_too_short,6,텍스트가 없거나 너무 짧습니다.
+AI_Systems_Grad_Info_20260319.pdf,ai_systems,AI시스템학과,24,ok,215,1 chunks
+AI_Systems_Grad_Info_20260319.pdf,ai_systems,AI시스템학과,25,ok,243,1 chunks
+AI_Systems_Grad_Info_20260319.pdf,ai_systems,AI시스템학과,26,empty_or_too_short,31,텍스트가 없거나 너무 짧습니다.
+AI_Systems_Grad_Info_20260319.pdf,ai_systems,AI시스템학과,27,empty_or_too_short,19,텍스트가 없거나 너무 짧습니다.
+AI_Systems_Grad_Info_20260319.pdf,ai_systems,AI시스템학과,28,ok,236,1 chunks
+AI_Systems_Grad_Info_20260319.pdf,ai_systems,AI시스템학과,29,ok,310,1 chunks
+AI_Systems_Grad_Info_20260319.pdf,ai_systems,AI시스템학과,30,empty_or_too_short,15,텍스트가 없거나 너무 짧습니다.
+AI_Systems_Grad_Info_20260319.pdf,ai_systems,AI시스템학과,31,ok,136,1 chunks
+KAIST AI & FUTURES STUDIES.pdf,fx,AI미래학과,1,ok,222,1 chunks
+KAIST AI & FUTURES STUDIES.pdf,fx,AI미래학과,2,ok,162,1 chunks
+KAIST AI & FUTURES STUDIES.pdf,fx,AI미래학과,3,ok,542,1 chunks
+KAIST AI & FUTURES STUDIES.pdf,fx,AI미래학과,4,ok,615,1 chunks
+KAIST AI & FUTURES STUDIES.pdf,fx,AI미래학과,5,ok,380,1 chunks
+KAIST AI & FUTURES STUDIES.pdf,fx,AI미래학과,6,ok,527,1 chunks
+KAIST AI & FUTURES STUDIES.pdf,fx,AI미래학과,7,ok,534,1 chunks
+KAIST AI & FUTURES STUDIES.pdf,fx,AI미래학과,8,ok,392,1 chunks
+KAIST AI & FUTURES STUDIES.pdf,fx,AI미래학과,9,ok,476,1 chunks
+KAIST AI & FUTURES STUDIES.pdf,fx,AI미래학과,10,ok,579,1 chunks
+KAIST AI & FUTURES STUDIES.pdf,fx,AI미래학과,11,ok,344,1 chunks
+KAIST AI & FUTURES STUDIES.pdf,fx,AI미래학과,12,ok,149,1 chunks
+KAIST AI & FUTURES STUDIES.pdf,fx,AI미래학과,13,ok,240,1 chunks
+KAIST AX (AI Transformation).pdf,ax,AX학과,1,ok,391,1 chunks
+KAIST AX (AI Transformation).pdf,ax,AX학과,2,ok,649,1 chunks
+KAIST AX (AI Transformation).pdf,ax,AX학과,3,ok,499,1 chunks
+KAIST AX (AI Transformation).pdf,ax,AX학과,4,ok,557,1 chunks
+KAIST AX (AI Transformation).pdf,ax,AX학과,5,ok,518,1 chunks
+KAIST AX (AI Transformation).pdf,ax,AX학과,6,ok,512,1 chunks

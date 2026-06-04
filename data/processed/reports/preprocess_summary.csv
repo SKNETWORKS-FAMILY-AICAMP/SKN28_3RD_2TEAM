@@ -11,5 +11,5 @@ sql_csv,kaist_profile.csv,C:\Users\Playdata\workspace\SKN28-third-2TEAM\data\pro
 sql_csv,kaist_statistics.csv,C:\Users\Playdata\workspace\SKN28-third-2TEAM\data\processed\csv\kaist_statistics.csv,16,6.0
 sql_csv,people.csv,C:\Users\Playdata\workspace\SKN28-third-2TEAM\data\processed\csv\people.csv,246,19.0
 sql_csv,quality_report.csv,C:\Users\Playdata\workspace\SKN28-third-2TEAM\data\processed\csv\quality_report.csv,14,3.0
-vector_json,vector_documents.json,C:\Users\Playdata\workspace\SKN28-third-2TEAM\data\processed\json\vector_documents.json,704,
-vector_jsonl,vector_documents.jsonl,C:\Users\Playdata\workspace\SKN28-third-2TEAM\data\processed\json\vector_documents.jsonl,704,
+vector_json,vector_documents.json,C:\Users\Playdata\workspace\SKN28-third-2TEAM\data\processed\json\vector_documents.json,767,
+vector_jsonl,vector_documents.jsonl,C:\Users\Playdata\workspace\SKN28-third-2TEAM\data\processed\json\vector_documents.jsonl,767,
