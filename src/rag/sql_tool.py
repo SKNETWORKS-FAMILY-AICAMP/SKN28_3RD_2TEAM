@@ -170,73 +170,75 @@ class SQLTool:
         task_hint = getattr(analysis, "sql_task_hint", None)
         table_hint = getattr(analysis, "sql_table_hint", None)
         table_name = self.TABLE_HINT_MAP.get(table_hint, table_hint)
-    
+
         try:
-            if table_name == "course":
-                return self._query_courses(analysis)
-    
-            if table_name == "office_contacts":
-                return self._query_office_contacts(analysis)
-    
-            if task_hint == "admission_lookup":
-                return self._query_admissions(analysis)
-    
-            if task_hint == "event_lookup":
-                return self._query_events(analysis)
-    
-            if task_hint == "asset_lookup":
-                return self._query_assets(analysis)
-    
-            if task_hint == "kaist_profile_lookup":
-                return self._query_kaist_profile(analysis)
-    
-            if task_hint == "kaist_statistics_lookup":
-                return self._query_kaist_statistics(analysis)
-    
-            if task_hint == "kaist_link_lookup":
-                return self._query_kaist_links(analysis)
-    
-            if task_hint == "department_homepage_lookup":
-                return self._query_department_homepages(analysis)
-    
-            if task_hint == "requirement_lookup":
-                return self._query_requirements(analysis)
-    
+            # 학과 목록 / 학과 개요 질문
             if task_hint == "department_overview" or table_name == "department":
                 return self._query_departments(analysis)
-    
+
+            if table_name == "course":
+                return self._query_courses(analysis)
+
+            if table_name == "office_contacts":
+                return self._query_office_contacts(analysis)
+
+            if task_hint == "admission_lookup":
+                return self._query_admissions(analysis)
+
+            if task_hint == "event_lookup":
+                return self._query_events(analysis)
+
+            if task_hint == "asset_lookup":
+                return self._query_assets(analysis)
+
+            if task_hint == "kaist_profile_lookup":
+                return self._query_kaist_profile(analysis)
+
+            if task_hint == "kaist_statistics_lookup":
+                return self._query_kaist_statistics(analysis)
+
+            if task_hint == "kaist_link_lookup":
+                return self._query_kaist_links(analysis)
+
+            if task_hint == "department_homepage_lookup":
+                return self._query_department_homepages(analysis)
+
+            if task_hint == "requirement_lookup":
+                return self._query_requirements(analysis)
+
+            # table_hint만 들어온 경우 fallback
             normalized_table = self.TABLE_HINT_MAP.get(str(table_hint), None)
-    
+
             if normalized_table == "course":
                 return self._query_courses(analysis)
-    
+
             if normalized_table == "person":
                 return self._query_people(analysis)
-    
+
             if normalized_table == "admission":
                 return self._query_admissions(analysis)
-    
+
             if normalized_table == "event":
                 return self._query_events(analysis)
-    
+
             if normalized_table == "asset":
                 return self._query_assets(analysis)
-    
+
             if normalized_table == "kaist_profile":
                 return self._query_kaist_profile(analysis)
-    
+
             if normalized_table == "kaist_statistics":
                 return self._query_kaist_statistics(analysis)
-    
+
             if normalized_table == "kaist_links":
                 return self._query_kaist_links(analysis)
-    
+
             if normalized_table == "department_homepage":
                 return self._query_department_homepages(analysis)
-    
+
             if normalized_table == "department_requirement":
                 return self._query_requirements(analysis)
-    
+
             return SqlQueryResult(
                 table_name=normalized_table or table_hint,
                 rows=[],
@@ -247,7 +249,7 @@ class SQLTool:
                 status="unsupported_task",
                 sql_task_hint=task_hint,
             )
-    
+
         except Exception as exc:
             return SqlQueryResult(
                 table_name=table_name or table_hint,
@@ -259,6 +261,34 @@ class SQLTool:
                 status="sql_error",
                 sql_task_hint=task_hint,
             )
+
+    def search(self, analysis: QueryAnalysis) -> SqlQueryResult:
+        return self.query(analysis)
+
+    def __call__(self, analysis: QueryAnalysis) -> SqlQueryResult:
+        return self.query(analysis)
+
+    # ------------------------------------------------------------
+    # connection
+    # ------------------------------------------------------------
+
+    def _select_driver(self) -> str:
+        try:
+            import pymysql  # noqa: F401
+            return "pymysql"
+        except ModuleNotFoundError:
+            pass
+
+        try:
+            import mysql.connector  # noqa: F401
+            return "mysql_connector"
+        except ModuleNotFoundError:
+            pass
+
+        raise RuntimeError(
+            "MySQL Python 드라이버가 없습니다. "
+            "다음 중 하나를 설치하세요: pip install pymysql 또는 pip install mysql-connector-python"
+        )
 
     def _connect(self) -> Any:
         if self.driver_name == "pymysql":
@@ -380,13 +410,13 @@ class SQLTool:
             table_name=table_name,
             rows=rows,
             columns=self._columns(rows),
-            conditions=analysis.sql_conditions,
+            conditions=getattr(analysis, "sql_conditions", {}),
             message=message,
             warnings=warnings or [],
             status="ok",
             query=query,
             params=params,
-            sql_task_hint=analysis.sql_task_hint,
+            sql_task_hint=getattr(analysis, "sql_task_hint", None),
             metadata=metadata or {},
         )
 
@@ -399,11 +429,11 @@ class SQLTool:
             table_name=table_name,
             rows=[],
             columns=[],
-            conditions=analysis.sql_conditions,
+            conditions=getattr(analysis, "sql_conditions", {}),
             message=f"테이블이 존재하지 않습니다: {table_name}",
             warnings=[f"missing table: {table_name}"],
             status="missing_table",
-            sql_task_hint=analysis.sql_task_hint,
+            sql_task_hint=getattr(analysis, "sql_task_hint", None),
         )
 
     # ------------------------------------------------------------
@@ -509,6 +539,7 @@ class SQLTool:
         )
 
     def _query_office_contacts(self, analysis: QueryAnalysis) -> SqlQueryResult:
+        table_name = "office_contacts"
         rows: list[dict[str, Any]] = []
         warnings: list[str] = []
 
@@ -524,10 +555,7 @@ class SQLTool:
                     office_where_parts.append("program_name LIKE %s")
                     office_params.append(f"%{name}%")
 
-                if office_where_parts:
-                    office_where = " OR ".join(office_where_parts)
-                else:
-                    office_where = "1=1"
+                office_where = " OR ".join(office_where_parts) if office_where_parts else "1=1"
 
                 sql_office = f"""
                 SELECT
@@ -639,8 +667,7 @@ class SQLTool:
 
         return self._result(
             table_name=table_name,
-            rows=df.to_dict("records"),
-            columns=list(df.columns),
+            rows=rows,
             analysis=analysis,
             message="연락처/학과사무실 조회가 완료되었습니다.",
             warnings=warnings,
@@ -780,9 +807,8 @@ class SQLTool:
             rows = self._fetch_all(conn, sql, final_params)
 
         return self._result(
-            table_name="course",
-            rows=df.to_dict("records"),
-            columns=list(df.columns),
+            table_name=table_name,
+            rows=rows,
             analysis=analysis,
             message="웹 자산/링크 조회가 완료되었습니다.",
             query=sql,
@@ -836,9 +862,8 @@ class SQLTool:
             rows = self._fetch_all(conn, sql, params)
 
         return self._result(
-            table_name="office_contacts",
-            rows=df.to_dict("records"),
-            columns=list(df.columns),
+            table_name=table_name,
+            rows=rows,
             analysis=analysis,
             message="KAIST 기본 정보 조회가 완료되었습니다.",
             query=sql,
@@ -1035,6 +1060,7 @@ if __name__ == "__main__":
 
     questions = [
         "AI대학 학과별 홈페이지 URL을 정리해줘.",
+        "AI 학과 뭐가 있는지 알려줘.",
         "AI컴퓨팅학과 교수진을 알려줘.",
         "AI컴퓨팅학과의 교육과정을 알려줘.",
         "KAIST 대표 번호 알려줘.",
@@ -1050,7 +1076,9 @@ if __name__ == "__main__":
         print("Q:", question)
         print("route:", analysis.route)
         print("intent:", analysis.intent)
+        print("needs_sql:", analysis.needs_sql)
         print("sql_task:", analysis.sql_task_hint)
+        print("table_hint:", analysis.sql_table_hint)
         print("table:", result.table_name)
         print("rows:", len(result.rows))
         print("columns:", result.columns[:10])
