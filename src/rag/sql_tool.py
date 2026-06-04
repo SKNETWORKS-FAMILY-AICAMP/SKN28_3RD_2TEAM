@@ -167,133 +167,98 @@ class SQLTool:
     # ------------------------------------------------------------
 
     def query(self, analysis: QueryAnalysis) -> SqlQueryResult:
-        task_hint = analysis.sql_task_hint
-        table_hint = analysis.sql_table_hint
-
-        if not table_name:
-            table_hint = getattr(analysis, "sql_table_hint", None)
-            table_name = self.TABLE_HINT_MAP.get(table_hint, table_hint)
-
-        if not table_name:
-            return self._unsupported_task_result(analysis)
-
+        task_hint = getattr(analysis, "sql_task_hint", None)
+        table_hint = getattr(analysis, "sql_table_hint", None)
+        table_name = self.TABLE_HINT_MAP.get(table_hint, table_hint)
+    
         try:
             if table_name == "course":
                 return self._query_courses(analysis)
-
+    
             if table_name == "office_contacts":
                 return self._query_office_contacts(analysis)
-
+    
             if task_hint == "admission_lookup":
                 return self._query_admissions(analysis)
-
+    
             if task_hint == "event_lookup":
                 return self._query_events(analysis)
-
+    
             if task_hint == "asset_lookup":
                 return self._query_assets(analysis)
-
+    
             if task_hint == "kaist_profile_lookup":
                 return self._query_kaist_profile(analysis)
-
+    
             if task_hint == "kaist_statistics_lookup":
                 return self._query_kaist_statistics(analysis)
-
+    
             if task_hint == "kaist_link_lookup":
                 return self._query_kaist_links(analysis)
-
+    
             if task_hint == "department_homepage_lookup":
                 return self._query_department_homepages(analysis)
-
+    
             if task_hint == "requirement_lookup":
                 return self._query_requirements(analysis)
-
-            if task_hint == "department_overview":
+    
+            if task_hint == "department_overview" or table_name == "department":
                 return self._query_departments(analysis)
-
-            # table_hint만 들어온 경우 fallback
+    
             normalized_table = self.TABLE_HINT_MAP.get(str(table_hint), None)
-
+    
             if normalized_table == "course":
                 return self._query_courses(analysis)
-
+    
             if normalized_table == "person":
                 return self._query_people(analysis)
-
+    
             if normalized_table == "admission":
                 return self._query_admissions(analysis)
-
+    
             if normalized_table == "event":
                 return self._query_events(analysis)
-
+    
             if normalized_table == "asset":
                 return self._query_assets(analysis)
-
+    
             if normalized_table == "kaist_profile":
                 return self._query_kaist_profile(analysis)
-
+    
             if normalized_table == "kaist_statistics":
                 return self._query_kaist_statistics(analysis)
-
+    
             if normalized_table == "kaist_links":
                 return self._query_kaist_links(analysis)
-
+    
             if normalized_table == "department_homepage":
                 return self._query_department_homepages(analysis)
-
+    
             if normalized_table == "department_requirement":
                 return self._query_requirements(analysis)
-
+    
             return SqlQueryResult(
                 table_name=normalized_table or table_hint,
                 rows=[],
                 columns=[],
-                conditions=analysis.sql_conditions,
+                conditions=getattr(analysis, "sql_conditions", {}),
                 message=f"지원하지 않는 SQL task입니다: {task_hint}",
                 warnings=[f"unsupported sql_task_hint: {task_hint}"],
                 status="unsupported_task",
                 sql_task_hint=task_hint,
             )
-
+    
         except Exception as exc:
             return SqlQueryResult(
-                table_name=table_hint,
+                table_name=table_name or table_hint,
                 rows=[],
                 columns=[],
-                conditions=analysis.sql_conditions,
+                conditions=getattr(analysis, "sql_conditions", {}),
                 message="SQL 조회 중 오류가 발생했습니다.",
                 warnings=[f"{type(exc).__name__}: {exc}"],
                 status="sql_error",
                 sql_task_hint=task_hint,
             )
-
-    def search(self, analysis: QueryAnalysis) -> SqlQueryResult:
-        return self.query(analysis)
-
-    def __call__(self, analysis: QueryAnalysis) -> SqlQueryResult:
-        return self.query(analysis)
-
-    # ------------------------------------------------------------
-    # connection
-    # ------------------------------------------------------------
-
-    def _select_driver(self) -> str:
-        try:
-            import pymysql  # noqa: F401
-            return "pymysql"
-        except ModuleNotFoundError:
-            pass
-
-        try:
-            import mysql.connector  # noqa: F401
-            return "mysql_connector"
-        except ModuleNotFoundError:
-            pass
-
-        raise RuntimeError(
-            "MySQL Python 드라이버가 없습니다. "
-            "다음 중 하나를 설치하세요: pip install pymysql 또는 pip install mysql-connector-python"
-        )
 
     def _connect(self) -> Any:
         if self.driver_name == "pymysql":

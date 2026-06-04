@@ -16,6 +16,13 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+# Streamlit 실행 시 .env 명시적으로 로드
+try:
+    from dotenv import load_dotenv
+    load_dotenv(PROJECT_ROOT / ".env")
+except ModuleNotFoundError:
+    pass
+
 from components.styles import load_css
 from components.layout import render_topbar, render_source_cards
 from src.rag.query_analyzer import DEPARTMENTS
@@ -31,7 +38,15 @@ st.set_page_config(
 load_css()
 render_topbar()
 
+def render_pipeline_startup_warnings() -> None:
+    pipeline = get_pipeline()
+    warnings = getattr(pipeline, "_startup_warnings", [])
 
+    if warnings:
+        with st.expander("Pipeline 초기화 경고", expanded=True):
+            for warning in warnings:
+                st.warning(warning)
+                
 def html(markup: str):
     st.markdown(markup, unsafe_allow_html=True)
 
@@ -112,12 +127,13 @@ if not st.session_state.get("pending_user_question") and not st.session_state.ge
 
 @st.cache_resource(show_spinner=False)
 def get_pipeline() -> RagPipeline:
-    return create_default_pipeline(
+    pipeline = create_default_pipeline(
         include_sql=True,
-        include_debug_context=False,
+        include_debug_context=True,
         preload_vector_retriever=True,
-        preload_answer_generator=False,
+        preload_answer_generator=True,
     )
+    return pipeline
 
 
 def format_sources_for_cards(sources):
