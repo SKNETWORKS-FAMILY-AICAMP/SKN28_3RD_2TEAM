@@ -1,0 +1,81 @@
+* [33me3a093c[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mKIM_practice[m[33m, [m[1;32mmain[m[33m)[m Feat: 출처 카드 접기 및 경고 안내문 다듬기
+* [33m23e46be[m Fix: 학과 카드 '홈페이지 바로가기' 링크 줄맞춤
+* [33m0b7100c[m Feat: UI 개선 및 데이터 수정
+*   [33m7e468d6[m[33m ([m[1;31morigin/main[m[33m, [m[1;31morigin/HEAD[m[33m)[m Merge branch 'main' of https://github.com/SKNETWORKS-FAMILY-AICAMP/SKN28_3RD_2TEAM
+[32m|[m[33m\[m  
+[32m|[m *   [33mfda4993[m Feat. rag 최종 수정 merge
+[32m|[m [34m|[m[35m\[m  
+[32m|[m * [35m|[m [33mb7d3854[m Merge RAG SQL and KAIST routing updates
+* [35m|[m [35m|[m   [33m5f7c1eb[m Merge branch 'KIM_practice'
+[36m|[m[1;31m\[m [35m\[m [35m\[m  
+[36m|[m * [35m|[m [35m|[m [33mb3ecbf0[m Feat: 학과 페이지 UI 개선 및 섹션 헤더 영문화
+[36m|[m * [35m|[m [35m|[m   [33m78f02b8[m Merge remote-tracking branch 'origin/hjs' into KIM_practice
+[36m|[m [35m|[m[1;33m\[m [35m\[m [35m\[m  
+[36m|[m [35m|[m [1;33m|[m[35m_[m[35m|[m[35m/[m  
+[36m|[m [35m|[m[35m/[m[1;33m|[m [35m|[m   
+* [35m|[m [1;33m|[m [35m|[m   [33m695b7a3[m Merge remote-tracking branch 'origin/hjs'
+[35m|[m[1;33m\[m [35m\[m [1;33m\[m [35m\[m  
+[35m|[m [1;33m|[m[35m/[m [1;33m/[m [35m/[m  
+[35m|[m[35m/[m[1;33m|[m [1;33m/[m [35m/[m   
+[35m|[m [1;33m|[m[1;33m/[m [35m/[m    
+[35m|[m * [35m|[m [33m10e21cb[m[33m ([m[1;31morigin/hjs[m[33m)[m Feat: README.md 수정
+[35m|[m * [35m|[m   [33m326c830[m Merge remote-tracking branch 'origin/main' into hjs
+[35m|[m [1;36m|[m[31m\[m [35m\[m  
+[35m|[m * [31m|[m [35m|[m [33m1621b49[m Feat: SQL Retriever 파이프라인 연결 및 KAIST 기본 정보 대답
+* [31m|[m [31m|[m [35m|[m   [33m4255d8f[m Merge pull request #2 from SKNETWORKS-FAMILY-AICAMP/KIM_practice
+[31m|[m[33m\[m [31m\[m [31m\[m [35m\[m  
+[31m|[m [33m|[m[31m_[m[31m|[m[31m/[m [35m/[m  
+[31m|[m[31m/[m[33m|[m [31m|[m [35m|[m   
+[31m|[m * [31m|[m [35m|[m [33m961da65[m[33m ([m[1;31morigin/KIM_practice[m[33m)[m Feat: 챗봇 UI 레이아웃 및 디자인 개선
+[31m|[m[31m/[m [31m/[m [35m/[m  
+* [31m|[m [35m|[m   [33mdf50e11[m Merge pull request #1 from SKNETWORKS-FAMILY-AICAMP/feature/hero-card-layout
+[35m|[m[35m\[m [31m\[m [35m\[m  
+[35m|[m [35m|[m[35m_[m[31m|[m[35m/[m  
+[35m|[m[35m/[m[35m|[m [31m|[m   
+[35m|[m * [31m|[m [33m527661f[m[33m ([m[1;31morigin/feature/hero-card-layout[m[33m)[m Feat: hero card layout 개선, chatbot 영역 개선(메시지 간 간격, Enter key 적용 등)
+[35m|[m[35m/[m [31m/[m  
+* [31m|[m   [33m9b7d808[m Merge branch 'KIM_practice'
+[36m|[m[1;31m\[m [31m\[m  
+[36m|[m * [31m|[m [33mbb8f133[m Feat: 챗봇 UI 레이아웃 및 디자인 개선
+[36m|[m * [31m|[m [33m9a66127[m Feat: 챗봇 페이지 UI 개선 - 질문창 인라인 배치 및 하단 카드 추가
+[36m|[m * [31m|[m [33mdcdddeb[m Feat: 홈 → 챗봇 자동 이동 및 챗봇 페이지 히어로 디자인 적용
+* [1;31m|[m [31m|[m   [33mab21e9a[m Feat. 모든 브랜치 merge, conflict 수정 본 업로드
+[1;32m|[m[1;33m\[m [1;31m\[m [31m\[m  
+[1;32m|[m * [1;31m|[m [31m|[m [33m84a1430[m[33m ([m[1;31morigin/merge/final[m[33m)[m Feat. README, requirements 수정
+[1;32m|[m [1;31m|[m[1;31m/[m [31m/[m  
+[1;32m|[m * [31m|[m [33m33ab3a4[m[33m ([m[1;31morigin/merge/test_by_sim[m[33m)[m Feat. merge 종합 수정본
+[1;32m|[m * [31m|[m [33mb2f7be6[m Feat. 수정 사항 merge
+[1;32m|[m [1;34m|[m[31m\[m[31m|[m 
+[1;32m|[m [1;34m|[m * [33mf644ece[m Feat: 입학 정보 검색 후보 확장 및 답변 컨텍스트 다양화 개선
+[1;32m|[m [1;34m|[m * [33m45096f1[m feat: RAG 질문 분류·프롬프트 안전장치·Streamlit 맥락/캐시/스트리밍·warm-up·문서화 개선
+[1;32m|[m * [1;35m|[m   [33m54fdb2d[m Feat. 브랜치들 merge
+[1;32m|[m [1;36m|[m[31m\[m [1;35m\[m  
+[1;32m|[m [1;36m|[m * [1;35m|[m [33m3bbb334[m[33m ([m[1;31morigin/sim[m[33m)[m RAG 파이프라인을 Streamlit에 연결하고 ERD 기반 SQL Tool 추가
+[1;32m|[m [1;36m|[m * [1;35m|[m [33m0dde64e[m Streamlit 챗봇을 RAG 파이프라인과 연결
+[1;32m|[m [1;36m|[m * [1;35m|[m [33mbc59274[m Reorganize processed data and add RAG tests
+[1;32m|[m [1;36m|[m * [1;35m|[m [33m259fd54[m Feat. 벡터 스토어 저장 및 벡터 retriever rag 구현
+[1;32m|[m [1;36m|[m * [1;35m|[m [33m3681680[m Feat. 전처리 파일 위치 변경
+[1;32m|[m [1;36m|[m * [1;35m|[m [33m8402eda[m Feat. sql, vector store를 위해 csv, json파일로 전처리, raw-data는 크롤링한 데이터들
+[1;32m|[m * [31m|[m [1;35m|[m   [33mc782a3c[m Merge KIM_SQL2 and hjs
+[1;32m|[m [32m|[m[1;35m\[m [31m\[m [1;35m\[m  
+[1;32m|[m [32m|[m [1;35m|[m [31m|[m[1;35m/[m  
+[1;32m|[m [32m|[m [1;35m|[m[1;35m/[m[31m|[m   
+[1;32m|[m [32m|[m [1;35m|[m [31m|[m * [33m45b52c2[m[33m ([m[1;32mKIM_SQL2[m[33m)[m Merge remote-tracking branch 'origin/hjs' into KIM_SQL2
+[1;32m|[m [32m|[m [1;35m|[m[32m_[m[31m|[m[32m/[m[1;35m|[m 
+[1;32m|[m [32m|[m[32m/[m[1;35m|[m [31m|[m[1;35m/[m  
+[1;32m|[m [32m|[m [1;35m|[m[1;35m/[m[31m|[m   
+[1;32m|[m [32m|[m * [31m|[m [33m2b75550[m feat: add RAG pipeline orchestration and answer safety policy
+[1;32m|[m [32m|[m[1;32m/[m [31m/[m  
+[1;32m|[m[1;32m/[m[32m|[m [31m|[m   
+[1;32m|[m * [31m|[m [33m2302b96[m[33m ([m[1;31morigin/KIM_SQL2[m[33m, [m[1;32mKIM_SQL2_backup[m[33m)[m Docs: OPEN_ISSUES.md 가독성 개선 (미해결 피드백 상단 요약 + 상세 분리)
+[1;32m|[m * [31m|[m [33md2617ee[m Refactor: ERD 리뷰 피드백 반영 (정규화·키 전략·영역 구분)
+[1;32m|[m * [31m|[m [33m815983d[m[33m ([m[1;31morigin/KIM_SQL[m[33m, [m[1;32mKIM_SQL[m[33m)[m Add KAIST AI대학 MySQL schema, ETL, and ERD
+[1;32m|[m[1;32m/[m [31m/[m  
+* [31m|[m [33md85b5c6[m Feat: 이미지 호스팅을 파일 연결로 변경
+* [31m|[m [33m5f9934f[m README.md 업데이트
+* [31m|[m [33m1c0822c[m Feat: Add Streamlit Demo Codes
+[31m|[m[31m/[m  
+* [33m3fd3d2b[m Update README.md
+* [33mb148a12[m Update README.md
+* [33mcca5c5d[m Update README.md
+* [33m0dfbcef[m Initial commit

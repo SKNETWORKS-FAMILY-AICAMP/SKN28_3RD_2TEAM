@@ -170,14 +170,18 @@ class SQLTool:
         task_hint = analysis.sql_task_hint
         table_hint = analysis.sql_table_hint
 
+        if not table_name:
+            table_hint = getattr(analysis, "sql_table_hint", None)
+            table_name = self.TABLE_HINT_MAP.get(table_hint, table_hint)
+
+        if not table_name:
+            return self._unsupported_task_result(analysis)
+
         try:
-            if task_hint == "course_lookup":
+            if table_name == "course":
                 return self._query_courses(analysis)
 
-            if task_hint == "person_lookup":
-                return self._query_people(analysis)
-
-            if task_hint == "office_contact_lookup":
+            if table_name == "office_contacts":
                 return self._query_office_contacts(analysis)
 
             if task_hint == "admission_lookup":
@@ -669,8 +673,9 @@ class SQLTool:
         rows = self._dedupe_rows(rows)
 
         return self._result(
-            table_name="office_contacts",
-            rows=rows[: self._limit()],
+            table_name=table_name,
+            rows=df.to_dict("records"),
+            columns=list(df.columns),
             analysis=analysis,
             message="연락처/학과사무실 조회가 완료되었습니다.",
             warnings=warnings,
@@ -810,8 +815,9 @@ class SQLTool:
             rows = self._fetch_all(conn, sql, final_params)
 
         return self._result(
-            table_name=table_name,
-            rows=rows,
+            table_name="course",
+            rows=df.to_dict("records"),
+            columns=list(df.columns),
             analysis=analysis,
             message="웹 자산/링크 조회가 완료되었습니다.",
             query=sql,
@@ -865,8 +871,9 @@ class SQLTool:
             rows = self._fetch_all(conn, sql, params)
 
         return self._result(
-            table_name=table_name,
-            rows=rows,
+            table_name="office_contacts",
+            rows=df.to_dict("records"),
+            columns=list(df.columns),
             analysis=analysis,
             message="KAIST 기본 정보 조회가 완료되었습니다.",
             query=sql,

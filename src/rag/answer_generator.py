@@ -71,7 +71,7 @@ class AnswerGenerator:
     # public API
     # ------------------------------------------------------------
 
-    def generate(
+    def __call__(
         self,
         question: str,
         context: Any,

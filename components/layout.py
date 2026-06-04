@@ -80,23 +80,24 @@ def render_source_cards(sources):
     if not sources:
         return
 
-    st.markdown('<div class="source-wrap"><strong>Retrieved Sources</strong>', unsafe_allow_html=True)
-    for source in sources:
-        title = source.get("title", "Untitled Source")
-        meta = source.get("meta", "Demo Source")
-        url = source.get("url", "")
-        title_html = f'<a href="{url}" target="_blank">{title}</a>' if url else title
-        st.markdown(
-            f"""
-            <div class="source-card">
-                <div class="source-title">{title_html}</div>
-                <div class="source-meta">{meta}</div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-    st.markdown('</div>', unsafe_allow_html=True)
+    # 출처 목록을 접을 수 있게 expander로 감싼다. 기본은 닫힌 상태라
+    # 답변 영역이 뚱뚱해 보이지 않고, 필요할 때만 펼쳐서 확인할 수 있다.
+    with st.expander("📎 Retrieved Sources", expanded=False):
+        for source in sources:
+            title = source.get("title", "Untitled Source")
+            meta = source.get("meta", "Demo Source")
+            url = source.get("url", "")
+            title_html = f'<a href="{url}" target="_blank">{title}</a>' if url else title
+            st.markdown(
+                f'<div class="source-card">'
+                f'<div class="source-title">{title_html}</div>'
+                f'<div class="source-meta">{meta}</div>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
 
 
 def render_back_home():
+    st.markdown('<div class="back-nav">', unsafe_allow_html=True)
     st.page_link("streamlit_app.py", label="← Home으로 돌아가기")
+    st.markdown('</div>', unsafe_allow_html=True)

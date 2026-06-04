@@ -338,6 +338,122 @@ def load_css():
             color: var(--muted);
         }
 
+
+        /* ── Department page: fixed 2x2 card height ── */
+        .department-overview-card {
+            height: 220px;
+            min-height: 220px;
+            display: flex;
+            flex-direction: column;
+            justify-content: flex-start;
+        }
+
+        .department-overview-card .department-icon {
+            font-size: 2rem;
+            line-height: 1;
+            margin-bottom: 1.05rem;
+        }
+
+        .department-overview-card h3 {
+            margin: 0 0 0.72rem 0;
+        }
+
+        .department-overview-card p {
+            margin: 0;
+            flex: 1;
+        }
+
+        .department-overview-card .card-link-wrap {
+            margin-top: 0.75rem;
+        }
+
+        .department-overview-card .card-link {
+            font-size: 0.8rem;
+            font-weight: 800;
+            color: var(--kaist-blue);
+        }
+
+        /* ── Department page: chair cards ── */
+        .faculty-chair-card {
+            height: 150px;
+            min-height: 150px;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            padding-bottom: 1.05rem;
+        }
+
+        .faculty-chair-card .faculty-dept-label {
+            font-size: 0.75rem;
+            color: var(--kaist-blue);
+            font-weight: 800;
+            margin-bottom: 0.65rem;
+        }
+
+        .faculty-chair-card h3 {
+            margin: 0;
+        }
+
+        .faculty-chair-card p {
+            margin: 0;
+            font-size: 0.85rem;
+            color: var(--muted);
+        }
+
+
+
+        /* ── Department page: compact course cards ── */
+        .course-list-wrap {
+            max-width: 820px;
+        }
+
+        .compact-course-card {
+            min-height: 58px !important;
+            padding: 0.82rem 1.2rem !important;
+            display: flex;
+            align-items: center;
+            margin-bottom: 0.52rem !important;
+        }
+
+        .compact-course-card .course-line {
+            display: flex;
+            align-items: baseline;
+            gap: 0.42rem;
+            flex-wrap: wrap;
+            line-height: 1.35;
+        }
+
+        .compact-course-card .course-title,
+        .compact-course-card .course-title:visited {
+            color: var(--kaist-blue) !important;
+            font-size: 1.08rem !important;
+            font-weight: 900 !important;
+            letter-spacing: -0.035em;
+        }
+
+        .compact-course-card .course-title:hover {
+            color: var(--kaist-blue-2) !important;
+        }
+
+        .compact-course-card .course-meta {
+            color: var(--muted);
+            font-size: 0.88rem;
+            font-weight: 700;
+            letter-spacing: -0.02em;
+        }
+
+        .compact-course-card h3 {
+            margin: 0 !important;
+            font-size: 0.98rem !important;
+            line-height: 1.35 !important;
+            font-weight: 900;
+        }
+
+        .course-dept {
+            color: var(--muted);
+            font-weight: 700;
+        }
+
         /* ── Page header ── */
         .page-header {
             padding: 2.2rem;
