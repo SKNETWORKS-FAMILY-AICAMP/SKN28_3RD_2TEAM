@@ -1,0 +1,9 @@
+beautifulsoup4
+chromadb
+openai
+pdfplumber
+playwright
+pymupdf
+pypdf
+PyYAML
+requests

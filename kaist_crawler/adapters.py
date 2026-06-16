@@ -1,16 +1,16 @@
 from __future__ import annotations
 
-import json
 import re
 from pathlib import Path
 from urllib.parse import quote, urljoin, urlparse
 
 from bs4 import BeautifulSoup
 
-from .extractors import extract_file_refs, html_to_text, js_literal_text, pdf_to_text
+from .extractors import extract_file_refs, parse_gviz, slugify
 from .http_client import FetchResult, HttpClient
-from .models import Document, SourceConfig
-from .store import RawStore, safe_filename, stable_id
+from .models import SourceConfig
+from .rendering import PlaywrightRenderer
+from .store import RawStore, safe_filename
 
 
 class BaseAdapter:
@@ -18,17 +18,16 @@ class BaseAdapter:
         self.source = source
         self.client = client
         self.store = store
-        self.documents: list[Document] = []
         self.errors: list[dict[str, object]] = []
         self._downloaded_urls: set[str] = set()
         self._fetched_urls: set[str] = set()
+        self._collected_route_urls: set[str] = set()
 
     @property
     def crawl_options(self) -> dict:
-        options = self.source.raw.get("raw", {})
-        return options if isinstance(options, dict) else {}
+        return self.source.raw_options
 
-    def crawl(self) -> list[Document]:
+    def crawl(self) -> None:
         raise NotImplementedError
 
     def fetch_and_store(
@@ -55,30 +54,30 @@ class BaseAdapter:
         )
         return result, record.raw_path
 
-    def add_document(
+    def store_bytes(
         self,
         *,
-        source_url: str,
-        title: str,
-        text: str,
-        raw_path: str | None,
+        url: str,
+        content: bytes,
+        content_type: str,
+        category: str,
+        filename_hint: str | None = None,
+        parent_source_id: str | None = None,
         metadata: dict | None = None,
-    ) -> None:
-        text = text.strip()
-        if not text:
-            return
-        doc_id = f"{self.source.id}:{stable_id(source_url, title, text[:200])}"
-        self.documents.append(
-            Document(
-                doc_id=doc_id,
-                site=self.source.id,
-                source_url=source_url,
-                title=title or self.source.name,
-                text=text,
-                raw_path=raw_path,
-                metadata=metadata or {},
-            )
+    ) -> str:
+        record = self.store.save(
+            site=self.source.id,
+            adapter=self.source.adapter,
+            category=category,
+            source_url=url,
+            canonical_url=url,
+            content=content,
+            content_type=content_type,
+            filename_hint=filename_hint,
+            parent_source_id=parent_source_id,
+            metadata=metadata,
         )
+        return record.raw_path
 
     def download_file(self, file_url: str, parent_source_id: str | None = None) -> None:
         absolute = urljoin(self.source.base_url, file_url)
@@ -98,7 +97,7 @@ class BaseAdapter:
                 metadata={"final_url": result.final_url},
             )
             return
-        record = self.store.save(
+        self.store.save(
             site=self.source.id,
             adapter=self.source.adapter,
             category="files",
@@ -110,18 +109,6 @@ class BaseAdapter:
             parent_source_id=parent_source_id,
             metadata={"download_url": absolute},
         )
-        raw_path = record.raw_path
-        suffix = Path(urlparse(result.final_url).path or urlparse(absolute).path).suffix.lower()
-        if suffix == ".pdf":
-            text = pdf_to_text(raw_path)
-            if text:
-                self.add_document(
-                    source_url=result.final_url,
-                    title=safe_filename(urlparse(result.final_url).path, "pdf"),
-                    text=text,
-                    raw_path=raw_path,
-                    metadata={"document_type": "pdf"},
-                )
 
     def _is_download_response(self, result: FetchResult, requested_url: str) -> bool:
         content_type = result.content_type.lower()
@@ -153,7 +140,7 @@ class BaseAdapter:
 
 
 class StaticHtmlAdapter(BaseAdapter):
-    def crawl(self) -> list[Document]:
+    def crawl(self) -> None:
         routes = self.source.routes or ["/"]
         page_urls = [urljoin(self.source.base_url, route) for route in routes]
         options = self.crawl_options
@@ -166,18 +153,10 @@ class StaticHtmlAdapter(BaseAdapter):
                 continue
             self._fetched_urls.add(url)
             try:
-                result, raw_path = self.fetch_and_store(url, category="pages")
+                result, _ = self.fetch_and_store(url, category="pages")
             except Exception as exc:
                 self.record_error(stage="fetch_static_page", url=url, error=exc)
                 continue
-            title, text = html_to_text(result.text)
-            self.add_document(
-                source_url=result.final_url,
-                title=title,
-                text=text,
-                raw_path=raw_path,
-                metadata={"document_type": "html"},
-            )
             if options.get("follow_html_links", True):
                 linked_pages = self._same_origin_html_links(result.final_url, result.text)
             else:
@@ -188,7 +167,6 @@ class StaticHtmlAdapter(BaseAdapter):
             for file_ref in extract_file_refs(result.text):
                 self.download_file(urljoin(result.final_url, file_ref))
         self.download_known_files()
-        return self.documents
 
     def _same_origin_html_links(self, base_url: str, content: str) -> list[str]:
         soup = BeautifulSoup(content, "html.parser")
@@ -221,18 +199,9 @@ class StaticHtmlAdapter(BaseAdapter):
 
 
 class ViteReactSpaAdapter(BaseAdapter):
-    def crawl(self) -> list[Document]:
-        root_result, root_path = self.fetch_and_store(self.source.base_url, category="pages", metadata={"route": "/"})
-        title, text = html_to_text(root_result.text)
-        self.add_document(
-            source_url=root_result.final_url,
-            title=title,
-            text=text,
-            raw_path=root_path,
-            metadata={"document_type": "html_shell", "route": "/"},
-        )
+    def crawl(self) -> None:
+        root_result, _ = self.fetch_and_store(self.source.base_url, category="pages", metadata={"route": "/"})
 
-        bundle_texts: list[str] = []
         asset_urls = self._asset_urls(root_result.final_url, root_result.text)
         visited_assets: set[str] = set()
         while asset_urls:
@@ -240,47 +209,21 @@ class ViteReactSpaAdapter(BaseAdapter):
             if asset_url in visited_assets:
                 continue
             visited_assets.add(asset_url)
-            result, raw_path = self.fetch_and_store(
+            result, _ = self.fetch_and_store(
                 asset_url,
                 category="assets",
                 filename_hint=safe_filename(urlparse(asset_url).path, "asset.js"),
             )
             text = result.text
-            extracted = js_literal_text(text)
-            if extracted:
-                bundle_texts.append(extracted)
             for file_ref in extract_file_refs(text):
                 if self._is_bundle_file_ref(file_ref):
                     self.download_file(urljoin(self.source.base_url, file_ref))
             for nested_asset in self._nested_asset_urls(result.final_url, text):
                 if nested_asset not in visited_assets and nested_asset not in asset_urls:
                     asset_urls.append(nested_asset)
-        if bundle_texts:
-            self.add_document(
-                source_url=self.source.base_url,
-                title=f"{self.source.name} SPA bundle text",
-                text="\n\n".join(bundle_texts),
-                raw_path=None,
-                metadata={"document_type": "spa_bundle_text"},
-            )
 
-        for route in self.source.routes:
-            route_url = urljoin(self.source.base_url, route)
-            if route_url in self._fetched_urls:
-                continue
-            self._fetched_urls.add(route_url)
-            try:
-                self.fetch_and_store(route_url, category="pages", metadata={"route": route, "rendered": False})
-            except Exception as exc:
-                self.record_error(
-                    stage="fetch_spa_route",
-                    url=route_url,
-                    error=exc,
-                    metadata={"route": route, "rendered": False},
-                )
-                continue
+        self._collect_routes(self.source.routes, stage="fetch_spa_route")
         self.download_known_files()
-        return self.documents
 
     def _asset_urls(self, base_url: str, content: str) -> list[str]:
         soup = BeautifulSoup(content, "html.parser")
@@ -311,15 +254,90 @@ class ViteReactSpaAdapter(BaseAdapter):
             return True
         return lower.startswith(("files/", "attachments/", "assets/", "public/"))
 
+    def _collect_routes(self, routes: list[str], *, stage: str) -> None:
+        if not routes:
+            return
+        options = self.crawl_options
+        render_routes = options.get("render_routes", True)
+        if render_routes:
+            try:
+                with PlaywrightRenderer(
+                    timeout_ms=int(options.get("render_timeout_ms", 30000)),
+                    wait_until=str(options.get("render_wait_until", "domcontentloaded")),
+                    wait_after_ms=int(options.get("render_wait_after_ms", 1000)),
+                    extract_text=False,
+                ) as renderer:
+                    for index, route in enumerate(routes):
+                        rendered = self._render_route(route, renderer=renderer, stage=stage)
+                        if (
+                            not rendered
+                            and index == 0
+                            and options.get("render_stop_after_first_failure", True)
+                        ):
+                            for fallback_route in routes[index + 1 :]:
+                                self._fetch_route_shell(fallback_route, stage=stage)
+                            break
+                return
+            except Exception as exc:
+                self.record_error(
+                    stage="render_routes_unavailable",
+                    url=self.source.base_url,
+                    error=exc,
+                    metadata={"routes": routes},
+                )
+        for route in routes:
+            self._fetch_route_shell(route, stage=stage)
+
+    def _render_route(self, route: str, *, renderer: PlaywrightRenderer, stage: str) -> bool:
+        route_url = urljoin(self.source.base_url, route)
+        if route_url in self._collected_route_urls:
+            return True
+        try:
+            rendered = renderer.render(route_url)
+            self.store_bytes(
+                url=rendered.url,
+                content=rendered.html.encode("utf-8"),
+                content_type="text/html; charset=utf-8",
+                category="pages",
+                filename_hint=f"{route_to_filename(route)}_rendered.html",
+                metadata={"route": route, "rendered": True, "renderer": "playwright"},
+            )
+            for file_ref in extract_file_refs(rendered.html):
+                self.download_file(urljoin(rendered.url, file_ref))
+            self._collected_route_urls.add(route_url)
+            return True
+        except Exception as exc:
+            self.record_error(
+                stage=stage,
+                url=route_url,
+                error=exc,
+                metadata={"route": route, "rendered": True},
+            )
+            self._fetch_route_shell(route, stage=stage)
+            return False
+
+    def _fetch_route_shell(self, route: str, *, stage: str) -> None:
+        route_url = urljoin(self.source.base_url, route)
+        if route_url in self._collected_route_urls:
+            return
+        try:
+            self.fetch_and_store(route_url, category="pages", metadata={"route": route, "rendered": False})
+            self._collected_route_urls.add(route_url)
+        except Exception as exc:
+            self.record_error(
+                stage=stage,
+                url=route_url,
+                error=exc,
+                metadata={"route": route, "rendered": False},
+            )
+
 
 class FxSheetsSpaAdapter(ViteReactSpaAdapter):
-    def crawl(self) -> list[Document]:
+    def crawl(self) -> None:
         super().crawl()
         rows_by_sheet = self._fetch_sheets()
-        self._add_news_documents(rows_by_sheet.get("news", []))
-        self._add_faculty_documents(rows_by_sheet.get("faculty", []))
+        self._download_news_files(rows_by_sheet.get("news", []))
         self._fetch_dynamic_routes(rows_by_sheet)
-        return self.documents
 
     def _fetch_sheets(self) -> dict[str, list[dict[str, str]]]:
         sheet_config = self.source.google_sheets
@@ -331,7 +349,7 @@ class FxSheetsSpaAdapter(ViteReactSpaAdapter):
         for sheet_name in sheet_config.get("sheets", []):
             url = template.format(spreadsheet_id=spreadsheet_id, sheet=quote(sheet_name))
             try:
-                result, raw_path = self.fetch_and_store(
+                result, _ = self.fetch_and_store(
                     url,
                     category="sheets",
                     filename_hint=f"{sheet_name}.json",
@@ -347,21 +365,10 @@ class FxSheetsSpaAdapter(ViteReactSpaAdapter):
                 continue
             rows = parse_gviz(result.text)
             rows_by_sheet[sheet_name] = rows
-            self.add_document(
-                source_url=result.final_url,
-                title=f"{self.source.name} {sheet_name} sheet",
-                text=sheet_rows_to_text(rows),
-                raw_path=raw_path,
-                metadata={"document_type": "google_sheet", "sheet": sheet_name},
-            )
         return rows_by_sheet
 
-    def _add_news_documents(self, rows: list[dict[str, str]]) -> None:
+    def _download_news_files(self, rows: list[dict[str, str]]) -> None:
         for row in rows:
-            slug = row.get("slug", "").strip()
-            if not slug:
-                continue
-            title = row.get("title_ko") or row.get("title_en") or slug
             body = "\n\n".join(
                 part
                 for part in [
@@ -372,98 +379,32 @@ class FxSheetsSpaAdapter(ViteReactSpaAdapter):
                 ]
                 if part
             )
-            self.add_document(
-                source_url=urljoin(self.source.base_url, f"/news/{slug}"),
-                title=title,
-                text=body,
-                raw_path=None,
-                metadata={"document_type": "news", "slug": slug, "category": row.get("category", "")},
-            )
             for file_ref in extract_file_refs(body):
                 self.download_file(file_ref)
 
-    def _add_faculty_documents(self, rows: list[dict[str, str]]) -> None:
-        for row in rows:
-            name = row.get("name_ko") or row.get("name_en")
-            if not name:
-                continue
-            slug = slugify(row.get("name_en") or name)
-            text = "\n".join(f"{key}: {value}" for key, value in row.items() if value)
-            self.add_document(
-                source_url=urljoin(self.source.base_url, f"/faculty-card/{slug}"),
-                title=name,
-                text=text,
-                raw_path=None,
-                metadata={"document_type": "faculty", "slug": slug},
-            )
-
     def _fetch_dynamic_routes(self, rows_by_sheet: dict[str, list[dict[str, str]]]) -> None:
+        routes = []
         for row in rows_by_sheet.get("news", []):
             slug = row.get("slug", "").strip()
             if slug:
-                self._fetch_route(f"/news/{slug}")
+                routes.append(f"/news/{slug}")
         for row in rows_by_sheet.get("faculty", []):
             name = row.get("name_en") or row.get("name_ko")
             if name:
-                self._fetch_route(f"/faculty-card/{slugify(name)}")
-
-    def _fetch_route(self, route: str) -> None:
-        url = urljoin(self.source.base_url, route)
-        if url in self._fetched_urls:
-            return
-        self._fetched_urls.add(url)
-        try:
-            self.fetch_and_store(url, category="pages", metadata={"route": route, "rendered": False})
-        except Exception as exc:
-            self.record_error(
-                stage="fetch_dynamic_route",
-                url=url,
-                error=exc,
-                metadata={"route": route, "rendered": False},
-            )
-            return
+                routes.append(f"/faculty-card/{slugify(name)}")
+        self._collect_routes(routes, stage="fetch_dynamic_route")
 
 
-def parse_gviz(content: str) -> list[dict[str, str]]:
-    start = content.find("{")
-    end = content.rfind("}")
-    if start < 0 or end < 0:
-        return []
-    payload = json.loads(content[start : end + 1])
-    table = payload.get("table", {})
-    columns = [(column.get("label") or "").strip() for column in table.get("cols", [])]
-    rows: list[dict[str, str]] = []
-    for row in table.get("rows", []):
-        item: dict[str, str] = {}
-        cells = row.get("c") or []
-        for index, column in enumerate(columns):
-            if not column:
-                continue
-            cell = cells[index] if index < len(cells) else None
-            if not cell or cell.get("v") is None:
-                item[column] = ""
-            else:
-                item[column] = str(cell.get("f", cell.get("v")))
-        rows.append(item)
-    return rows
+def route_to_filename(route: str) -> str:
+    route = route.strip("/") or "index"
+    return re.sub(r"[^A-Za-z0-9_.-]+", "_", route).strip("._") or "route"
 
 
-def sheet_rows_to_text(rows: list[dict[str, str]]) -> str:
-    blocks = []
-    for row in rows:
-        lines = [f"{key}: {value}" for key, value in row.items() if value]
-        if lines:
-            blocks.append("\n".join(lines))
-    return "\n\n".join(blocks)
-
-
-def slugify(value: str) -> str:
-    original = value.strip().lower()
-    slug = re.sub(r"[^a-z0-9]+", "-", original)
-    return slug.strip("-") or stable_id(original)[:12]
-
-
-def create_adapter(source: SourceConfig, client: HttpClient, store: RawStore) -> BaseAdapter:
+def create_adapter(
+    source: SourceConfig,
+    client: HttpClient,
+    store: RawStore,
+) -> BaseAdapter:
     if source.adapter == "static_html":
         return StaticHtmlAdapter(source, client, store)
     if source.adapter == "vite_react_spa_with_google_sheets":

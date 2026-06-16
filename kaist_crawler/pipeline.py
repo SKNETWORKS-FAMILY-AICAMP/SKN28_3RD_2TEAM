@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import json
+import shutil
 from pathlib import Path
 
 from .adapters import create_adapter
 from .config import load_sources
-from .extractors import chunk_documents
 from .http_client import HttpClient
-from .models import Chunk, Document
+from .models import Chunk, Document, SourceConfig
+from .processor import process_raw_documents
 from .store import RawStore
 from .vector_store import build_vector_store
 
@@ -23,28 +24,20 @@ def run_crawl(
     embedding_dimensions: int | None = None,
     embedding_batch_size: int = 64,
     collection_name: str | None = None,
+    clean: bool = False,
 ) -> tuple[list[Document], list[Chunk]]:
     sources = load_sources(config_path, source_ids)
     output_root = Path(output_root)
-    processed_root = output_root / "processed"
-    processed_root.mkdir(parents=True, exist_ok=True)
+    if clean:
+        clean_output(output_root, targets=("raw", "processed", "vector"))
 
-    client = HttpClient()
-    store = RawStore(output_root)
-    documents: list[Document] = []
-    errors: list[dict] = []
-    try:
-        for source in sources:
-            adapter = create_adapter(source, client, store)
-            documents.extend(adapter.crawl())
-            errors.extend(adapter.errors)
-    finally:
-        store.close()
-
-    chunks = chunk_documents(documents)
-    write_jsonl(processed_root / "documents.jsonl", [doc.to_dict() for doc in documents])
-    write_jsonl(processed_root / "chunks.jsonl", [chunk.to_dict() for chunk in chunks])
-    write_jsonl(processed_root / "errors.jsonl", errors)
+    _, crawl_errors = crawl_sources_raw(sources=sources, output_root=output_root)
+    documents, chunks, process_errors = process_raw_data_from_sources(
+        sources=sources,
+        output_root=output_root,
+        clean=False,
+        extra_errors=crawl_errors,
+    )
     if build_vectors:
         build_vector_store(
             chunks,
@@ -63,21 +56,64 @@ def run_raw_crawl(
     config_path: str | Path,
     output_root: str | Path,
     source_ids: set[str] | None = None,
+    clean: bool = False,
 ) -> tuple[int, list[dict]]:
     sources = load_sources(config_path, source_ids)
+    output_root = Path(output_root)
+    if clean:
+        clean_output(output_root, targets=("raw",))
+    return crawl_sources_raw(sources=sources, output_root=output_root)
+
+
+def process_raw_data(
+    *,
+    config_path: str | Path,
+    output_root: str | Path,
+    source_ids: set[str] | None = None,
+    clean: bool = False,
+) -> tuple[list[Document], list[Chunk], list[dict]]:
+    sources = load_sources(config_path, source_ids)
+    return process_raw_data_from_sources(sources=sources, output_root=output_root, clean=clean)
+
+
+def crawl_sources_raw(
+    *,
+    sources: list[SourceConfig],
+    output_root: str | Path,
+) -> tuple[int, list[dict]]:
     client = HttpClient()
     store = RawStore(output_root)
-    document_count = 0
     errors: list[dict] = []
     try:
         for source in sources:
             adapter = create_adapter(source, client, store)
-            documents = adapter.crawl()
-            document_count += len(documents)
+            adapter.crawl()
             errors.extend(adapter.errors)
     finally:
+        raw_file_count = store.saved_count
         store.close()
-    return document_count, errors
+    return raw_file_count, errors
+
+
+def process_raw_data_from_sources(
+    *,
+    sources: list[SourceConfig],
+    output_root: str | Path,
+    clean: bool = False,
+    extra_errors: list[dict] | None = None,
+) -> tuple[list[Document], list[Chunk], list[dict]]:
+    output_root = Path(output_root)
+    if clean:
+        clean_output(output_root, targets=("processed",))
+    processed_root = output_root / "processed"
+    processed_root.mkdir(parents=True, exist_ok=True)
+    documents, chunks, errors = process_raw_documents(output_root=output_root, sources=sources)
+    all_errors = list(extra_errors or [])
+    all_errors.extend(errors)
+    write_jsonl(processed_root / "documents.jsonl", [doc.to_dict() for doc in documents])
+    write_jsonl(processed_root / "chunks.jsonl", [chunk.to_dict() for chunk in chunks])
+    write_jsonl(processed_root / "errors.jsonl", all_errors)
+    return documents, chunks, all_errors
 
 
 def build_vectors_from_chunks(
@@ -117,6 +153,14 @@ def build_vectors_from_chunks(
         embedding_batch_size=embedding_batch_size,
     )
     return len(chunks)
+
+
+def clean_output(output_root: str | Path, *, targets: tuple[str, ...]) -> None:
+    root = Path(output_root)
+    for target in targets:
+        path = root / target
+        if path.exists():
+            shutil.rmtree(path)
 
 
 def write_jsonl(path: Path, rows: list[dict]) -> None:

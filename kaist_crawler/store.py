@@ -28,7 +28,7 @@ def stable_id(*parts: str) -> str:
 
 def safe_filename(value: str, fallback: str = "raw") -> str:
     value = unquote(value).strip().replace("\\", "/").split("/")[-1]
-    value = re.sub(r"[^\w가-힣.\-]+", "_", value, flags=re.UNICODE).strip("._")
+    value = re.sub(r"[^\w\uac00-\ud7a3.\-]+", "_", value, flags=re.UNICODE).strip("._")
     return value or fallback
 
 
@@ -53,6 +53,7 @@ class RawStore:
         self.raw_root = self.output_root / "raw"
         self.raw_root.mkdir(parents=True, exist_ok=True)
         self._manifest_handles: dict[str, object] = {}
+        self.saved_count = 0
 
     def close(self) -> None:
         for handle in self._manifest_handles.values():
@@ -99,6 +100,7 @@ class RawStore:
             metadata=metadata or {},
         )
         self._append_manifest(site, record)
+        self.saved_count += 1
         return record
 
     def _append_manifest(self, site: str, record: RawRecord) -> None:

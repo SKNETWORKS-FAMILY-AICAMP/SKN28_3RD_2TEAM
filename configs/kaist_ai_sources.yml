@@ -44,6 +44,12 @@ sources:
     known_files:
       - /files/AI_Computing_Grad_Info_Session_20260320.pdf
       - /files/AI_Computing_Introduction_20260526.pdf
+    raw:
+      render_routes: true
+      render_timeout_ms: 10000
+      render_wait_until: domcontentloaded
+      render_wait_after_ms: 1000
+      render_stop_after_first_failure: true
     crawl_notes:
       - "Server returns index HTML for sitemap paths; do not depend on sitemap XML."
       - "Main content is embedded in the Vite/React JavaScript bundle and rendered client-side."
@@ -89,6 +95,12 @@ sources:
       - /notice
     known_files:
       - /files/20260318_AX학과_2026년_가을입학_입시설명회_VER3.pdf
+    raw:
+      render_routes: true
+      render_timeout_ms: 10000
+      render_wait_until: domcontentloaded
+      render_wait_after_ms: 1000
+      render_stop_after_first_failure: true
     crawl_notes:
       - "robots.txt allows crawling but points to the AIC sitemap URL, so ignore the sitemap directive for this domain."
       - "Server returns index HTML for sitemap paths."
@@ -119,6 +131,12 @@ sources:
         - news
         - faculty
       gviz_url_template: "https://docs.google.com/spreadsheets/d/{spreadsheet_id}/gviz/tq?tqx=out:json&headers=1&sheet={sheet}"
+    raw:
+      render_routes: true
+      render_timeout_ms: 10000
+      render_wait_until: domcontentloaded
+      render_wait_after_ms: 1000
+      render_stop_after_first_failure: true
     crawl_notes:
       - "robots.txt and sitemap.xml return the SPA index HTML, not robot/sitemap documents."
       - "News and faculty records are loaded from public Google Sheets gviz JSON."
@@ -202,6 +220,12 @@ sources:
       - /notice
       - /notice/ai-college-vision-declaration
       - /notice/global-ai-hub-statement
+    raw:
+      render_routes: true
+      render_timeout_ms: 10000
+      render_wait_until: domcontentloaded
+      render_wait_after_ms: 1000
+      render_stop_after_first_failure: true
     crawl_notes:
       - "Root HTML is a Vite/React shell and references /assets/index-FwXjtZow.js."
       - "robots.txt allows crawling, but sitemap.xml returns the SPA index HTML."

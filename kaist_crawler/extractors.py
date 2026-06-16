@@ -3,6 +3,7 @@ from __future__ import annotations
 import html
 import json
 import re
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
 
@@ -22,6 +23,14 @@ NOISY_FILE_REF_PARTS = (
     "window.document",
     "ownerdocument",
 )
+
+
+@dataclass(frozen=True)
+class PdfTextResult:
+    text: str
+    extractor: str
+    pages: int
+    error: str = ""
 
 
 def html_to_text(content: str) -> tuple[str, str]:
@@ -108,19 +117,112 @@ def _is_meaningful_literal(value: str) -> bool:
     return False
 
 
-def pdf_to_text(path: str | Path) -> str:
+def parse_gviz(content: str) -> list[dict[str, str]]:
+    start = content.find("{")
+    end = content.rfind("}")
+    if start < 0 or end < 0:
+        return []
+    payload = json.loads(content[start : end + 1])
+    table = payload.get("table", {})
+    columns = [(column.get("label") or "").strip() for column in table.get("cols", [])]
+    rows: list[dict[str, str]] = []
+    for row in table.get("rows", []):
+        item: dict[str, str] = {}
+        cells = row.get("c") or []
+        for index, column in enumerate(columns):
+            if not column:
+                continue
+            cell = cells[index] if index < len(cells) else None
+            if not cell or cell.get("v") is None:
+                item[column] = ""
+            else:
+                item[column] = str(cell.get("f", cell.get("v")))
+        rows.append(item)
+    return rows
+
+
+def sheet_rows_to_text(rows: list[dict[str, str]]) -> str:
+    blocks = []
+    for row in rows:
+        lines = [f"{key}: {value}" for key, value in row.items() if value]
+        if lines:
+            blocks.append("\n".join(lines))
+    return "\n\n".join(blocks)
+
+
+def slugify(value: str) -> str:
+    original = value.strip().lower()
+    slug = re.sub(r"[^a-z0-9]+", "-", original)
+    return slug.strip("-") or stable_id(original)[:12]
+
+
+def pdf_to_text(path: str | Path) -> PdfTextResult:
+    path = Path(path)
+    errors: list[str] = []
+
+    extractors = (
+        ("pymupdf", _extract_pdf_with_pymupdf),
+        ("pdfplumber", _extract_pdf_with_pdfplumber),
+        ("pypdf", _extract_pdf_with_pypdf),
+        ("PyPDF2", _extract_pdf_with_pypdf2),
+    )
+    for extractor_name, extractor in extractors:
+        try:
+            text, pages = extractor(path)
+        except ImportError:
+            errors.append(f"{extractor_name} is not installed")
+            continue
+        except Exception as exc:
+            errors.append(f"{extractor_name} failed: {type(exc).__name__}: {exc}")
+            continue
+
+        text = normalize_text(text)
+        if text:
+            return PdfTextResult(text=text, extractor=extractor_name, pages=pages)
+        errors.append(f"{extractor_name} extracted no text")
+
+    return PdfTextResult(text="", extractor="", pages=0, error="; ".join(errors))
+
+
+def _extract_pdf_with_pymupdf(path: Path) -> tuple[str, int]:
+    import fitz  # type: ignore
+
+    document = fitz.open(str(path))
+    try:
+        parts = [page.get_text("text") or "" for page in document]
+        return "\n".join(parts), document.page_count
+    finally:
+        document.close()
+
+
+def _extract_pdf_with_pdfplumber(path: Path) -> tuple[str, int]:
+    import pdfplumber  # type: ignore
+
+    with pdfplumber.open(str(path)) as pdf:
+        parts = [page.extract_text() or "" for page in pdf.pages]
+        return "\n".join(parts), len(pdf.pages)
+
+
+def _extract_pdf_with_pypdf(path: Path) -> tuple[str, int]:
     try:
         from pypdf import PdfReader  # type: ignore
     except ImportError:
-        try:
-            from PyPDF2 import PdfReader  # type: ignore
-        except ImportError:
-            return ""
+        raise
     reader = PdfReader(str(path))
     parts = []
     for page in reader.pages:
         parts.append(page.extract_text() or "")
-    return normalize_text("\n".join(parts))
+    return "\n".join(parts), len(reader.pages)
+
+
+def _extract_pdf_with_pypdf2(path: Path) -> tuple[str, int]:
+    from PyPDF2 import PdfReader  # type: ignore
+
+    reader = PdfReader(str(path))
+    parts = []
+    for page in reader.pages:
+        parts.append(page.extract_text() or "")
+    return "\n".join(parts), len(reader.pages)
 
 
 def chunk_documents(

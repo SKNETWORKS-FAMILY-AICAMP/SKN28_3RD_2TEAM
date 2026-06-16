@@ -14,7 +14,7 @@ class SourceConfig:
     known_files: list[str] = field(default_factory=list)
     dynamic_routes: dict[str, Any] = field(default_factory=dict)
     google_sheets: dict[str, Any] = field(default_factory=dict)
-    raw: dict[str, Any] = field(default_factory=dict)
+    raw_options: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
     def from_dict(cls, raw: dict[str, Any]) -> "SourceConfig":
@@ -27,7 +27,7 @@ class SourceConfig:
             known_files=list(raw.get("known_files", [])),
             dynamic_routes=dict(raw.get("dynamic_routes", {})),
             google_sheets=dict(raw.get("google_sheets", {})),
-            raw=dict(raw),
+            raw_options=dict(raw.get("raw", {})),
         )
 
 
