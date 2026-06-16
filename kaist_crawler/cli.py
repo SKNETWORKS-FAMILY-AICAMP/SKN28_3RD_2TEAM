@@ -104,7 +104,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.command == "process":
         selected = set(args.source) if args.source else None
-        documents, chunks, errors = process_raw_data(
+        documents, chunks, errors, filtered = process_raw_data(
             config_path=args.config,
             output_root=args.output,
             source_ids=selected,
@@ -112,7 +112,10 @@ def main(argv: list[str] | None = None) -> int:
         )
         for error in errors:
             print(json.dumps(error, ensure_ascii=False))
-        print(f"documents={len(documents)} chunks={len(chunks)} errors={len(errors)} output={Path(args.output, 'processed').resolve()}")
+        print(
+            f"documents={len(documents)} chunks={len(chunks)} "
+            f"errors={len(errors)} filtered={len(filtered)} output={Path(args.output, 'processed').resolve()}"
+        )
         return 0
     if args.command == "build-vector":
         count = build_vectors_from_chunks(

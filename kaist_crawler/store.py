@@ -53,12 +53,16 @@ class RawStore:
         self.raw_root = self.output_root / "raw"
         self.raw_root.mkdir(parents=True, exist_ok=True)
         self._manifest_handles: dict[str, object] = {}
+        self._skipped_handles: dict[str, object] = {}
         self.saved_count = 0
 
     def close(self) -> None:
         for handle in self._manifest_handles.values():
             handle.close()
+        for handle in self._skipped_handles.values():
+            handle.close()
         self._manifest_handles.clear()
+        self._skipped_handles.clear()
 
     def save(
         self,
@@ -102,6 +106,33 @@ class RawStore:
         self._append_manifest(site, record)
         self.saved_count += 1
         return record
+
+    def record_skipped_file(
+        self,
+        *,
+        site: str,
+        adapter: str,
+        source_url: str,
+        final_url: str | None,
+        reason: str,
+        metadata: dict | None = None,
+    ) -> None:
+        row = {
+            "site": site,
+            "adapter": adapter,
+            "source_url": source_url,
+            "final_url": final_url or "",
+            "reason": reason,
+            "fetched_at": now_kst(),
+            "metadata": metadata or {},
+        }
+        if site not in self._skipped_handles:
+            skipped_path = self.raw_root / site / "skipped_files.jsonl"
+            skipped_path.parent.mkdir(parents=True, exist_ok=True)
+            self._skipped_handles[site] = skipped_path.open("a", encoding="utf-8")
+        handle = self._skipped_handles[site]
+        handle.write(json.dumps(row, ensure_ascii=False) + "\n")
+        handle.flush()
 
     def _append_manifest(self, site: str, record: RawRecord) -> None:
         if site not in self._manifest_handles:

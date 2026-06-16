@@ -23,6 +23,49 @@ defaults:
   vector_store:
     provider: chroma
     path: data/vector/chroma
+  raw:
+    file_policy:
+      max_file_size_mb: 30
+      exclude_url_patterns:
+        - '(?i)newsletter'
+        - '(?i)kaistian'
+        - '(?i)magazine'
+        - '(?i)annual'
+        - '(?i)report'
+        - '소식지'
+      include_url_patterns: []
+      skip_unknown_size: false
+  processing:
+    filter_policy:
+      skip_duplicate_raw_sha: true
+      skip_duplicate_document_text: true
+      skip_duplicate_chunks: true
+      min_text_chars: 200
+      min_text_chars_by_type:
+        html: 200
+        rendered_html: 200
+        html_shell: 300
+        spa_bundle_text: 200
+        google_sheet: 80
+        news: 100
+        faculty: 50
+        pdf: 300
+      exclude_document_types:
+        - html_shell
+      max_pdf_size_mb: 30
+      exclude_pdf_url_patterns:
+        - '(?i)newsletter'
+        - '(?i)kaistian'
+        - '(?i)magazine'
+        - '(?i)annual'
+        - '(?i)report'
+        - '소식지'
+      exclude_asset_url_patterns:
+        - '(?i)/vendor'
+        - '(?i)vendor-'
+        - '(?i)chunk-vendors'
+      include_html_url_patterns: []
+      exclude_html_url_patterns: []
 
 sources:
   - id: kaist_aic
@@ -199,6 +242,11 @@ sources:
         - /kr/html/campus/0534.html
         - /kr/html/campus/0535.html
         - /kr/html/campus/0536.html
+    processing:
+      filter_policy:
+        include_html_url_patterns:
+          - /kr/html/admission/
+          - /kr/html/edu/
     crawl_notes:
       - "robots.txt allows crawling and sitemap.xml is valid, but the public menu links are broad."
       - "Bound the crawl to Korean main-site pages under /kr/ and core /kr/html sections."

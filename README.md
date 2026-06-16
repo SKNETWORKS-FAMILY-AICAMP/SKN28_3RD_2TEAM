@@ -93,6 +93,7 @@ kaist_ai_crawler_project/
     pipeline.py
     adapters.py
     processor.py
+    policies.py
     config.py
     http_client.py
     store.py
@@ -111,6 +112,7 @@ data/
   raw/
     <site>/
       manifest.jsonl
+      skipped_files.jsonl
       pages/
       assets/
       sheets/
@@ -119,25 +121,37 @@ data/
     documents.jsonl
     chunks.jsonl
     errors.jsonl
+    filtered.jsonl
   vector/
     chroma/
 ```
 
 - `raw/`: 원본 HTML, 렌더링 HTML, JS/CSS asset, Google Sheets JSON, PDF 파일을 저장합니다.
 - `manifest.jsonl`: raw 파일의 URL, 저장 경로, content-type, sha256, metadata를 기록합니다.
+- `skipped_files.jsonl`: raw 단계에서 file policy 때문에 다운로드하지 않은 파일과 제외 사유를 기록합니다.
 - `processed/documents.jsonl`: raw data에서 추출한 문서 단위 텍스트입니다.
 - `processed/chunks.jsonl`: vector store에 넣기 위한 chunk입니다.
 - `processed/errors.jsonl`: 수집 또는 전처리 중 발생한 비치명적 오류입니다.
+- `processed/filtered.jsonl`: 전처리 단계에서 벡터 저장 대상에서 제외한 raw/document/chunk와 사유입니다.
 - `vector/chroma/`: Chroma 로컬 vector store입니다.
 
 ## 모듈 역할
 
 - `adapters.py`: 사이트별 raw 수집만 담당합니다.
 - `processor.py`: `raw/*/manifest.jsonl`을 읽어 documents/chunks를 생성합니다. PDF 텍스트 추출도 여기서 수행합니다.
+- `policies.py`: raw 파일 다운로드 정책과 전처리 필터 정책을 정의합니다.
 - `pipeline.py`: `raw`, `process`, `run`, `build-vector` 흐름을 조합합니다.
 - `extractors.py`: HTML, JS literal, PDF, Google Sheets JSON, chunking 관련 순수 추출 함수를 제공합니다.
 - `store.py`: raw 파일 저장과 manifest 기록을 담당합니다.
 - `vector_store.py`: hash/OpenAI embedding과 Chroma 저장을 담당합니다.
+
+## 수집 및 전처리 필터 정책
+
+정책은 `configs/kaist_ai_sources.yml`에서 조정합니다. 다른 대학원 사이트를 추가할 때는 같은 기본 정책을 재사용하고, 사이트별로 필요한 범위만 override합니다.
+
+- raw file policy: `max_file_size_mb`, `exclude_url_patterns`, `include_url_patterns`로 대용량 뉴스레터·매거진·연례보고서 같은 파일 다운로드를 사전에 제한합니다.
+- processing filter policy: 중복 raw sha256, 중복 문서 텍스트, 중복 chunk, 너무 짧은 문서, HTML shell, 대용량/뉴스레터 PDF를 벡터 후보에서 제외합니다.
+- KAIST 본원 사이트는 HTML 범위를 입학·교육 페이지 중심으로 좁혀, 학과 RAG와 관련성이 낮은 일반 홍보/캠퍼스/뉴스 페이지가 벡터 품질을 낮추지 않게 합니다.
 
 ## PDF 정책
 

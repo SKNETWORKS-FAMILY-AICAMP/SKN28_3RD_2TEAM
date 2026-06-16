@@ -9,6 +9,7 @@ from bs4 import BeautifulSoup
 from .extractors import extract_file_refs, parse_gviz, slugify
 from .http_client import FetchResult, HttpClient
 from .models import SourceConfig
+from .policies import FilePolicy
 from .rendering import PlaywrightRenderer
 from .store import RawStore, safe_filename
 
@@ -26,6 +27,10 @@ class BaseAdapter:
     @property
     def crawl_options(self) -> dict:
         return self.source.raw_options
+
+    @property
+    def file_policy(self) -> FilePolicy:
+        return FilePolicy.from_options(self.crawl_options.get("file_policy", {}))
 
     def crawl(self) -> None:
         raise NotImplementedError
@@ -84,10 +89,45 @@ class BaseAdapter:
         if absolute in self._downloaded_urls:
             return
         self._downloaded_urls.add(absolute)
+
+        policy = self.file_policy
+        try:
+            head_result = self.client.head(absolute)
+            decision = policy.evaluate(
+                requested_url=absolute,
+                final_url=head_result.final_url,
+                content_length=head_result.content_length,
+                content_type=head_result.content_type,
+            )
+            if decision.skip:
+                self._record_skipped_file(
+                    url=absolute,
+                    final_url=head_result.final_url,
+                    reason=decision.reason,
+                    metadata=decision.metadata,
+                )
+                return
+        except Exception:
+            head_result = None
+
         try:
             result = self.client.get(absolute)
         except Exception as exc:
             self.record_error(stage="download_file", url=absolute, error=exc)
+            return
+        decision = policy.evaluate(
+            requested_url=absolute,
+            final_url=result.final_url,
+            content_length=len(result.content),
+            content_type=result.content_type,
+        )
+        if decision.skip:
+            self._record_skipped_file(
+                url=absolute,
+                final_url=result.final_url,
+                reason=decision.reason,
+                metadata=decision.metadata,
+            )
             return
         if not self._is_download_response(result, absolute):
             self.record_error(
@@ -108,6 +148,23 @@ class BaseAdapter:
             filename_hint=safe_filename(urlparse(result.final_url).path or urlparse(absolute).path, "file"),
             parent_source_id=parent_source_id,
             metadata={"download_url": absolute},
+        )
+
+    def _record_skipped_file(
+        self,
+        *,
+        url: str,
+        final_url: str | None,
+        reason: str,
+        metadata: dict | None = None,
+    ) -> None:
+        self.store.record_skipped_file(
+            site=self.source.id,
+            adapter=self.source.adapter,
+            source_url=url,
+            final_url=final_url,
+            reason=reason,
+            metadata=metadata,
         )
 
     def _is_download_response(self, result: FetchResult, requested_url: str) -> bool:

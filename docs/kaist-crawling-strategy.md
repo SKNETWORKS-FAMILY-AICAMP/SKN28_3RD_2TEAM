@@ -144,16 +144,43 @@ raw data는 가능한 원본에 가깝게 보존한다.
 - PDF 같은 다운로드 파일은 `raw/<site>/files/`에 저장한다.
 - FX Google Sheets gviz JSON은 `raw/kaist_fx/sheets/`에 저장한다.
 - 모든 raw 파일은 `manifest.jsonl`에 source URL, canonical URL, content-type, sha256, 저장 경로, metadata를 기록한다.
+- raw 단계에서 file policy로 제외한 파일은 `raw/<site>/skipped_files.jsonl`에 URL과 제외 사유를 기록한다.
+
+## Raw File Policy
+
+다른 대학원 사이트로 확장할 때도 raw 수집은 가능한 원본 보존을 우선하지만, 파일 다운로드는 예외적으로 사전 제한한다. 이유는 대용량 뉴스레터, 매거진, 연례보고서처럼 RAG 품질 대비 비용이 큰 파일이 raw 수집 시간을 크게 늘릴 수 있기 때문이다.
+
+현재 기본 정책은 `configs/kaist_ai_sources.yml`의 `defaults.raw.file_policy`에 둔다.
+
+- `max_file_size_mb`: 기본 30MB를 초과하는 파일은 다운로드하지 않는다.
+- `exclude_url_patterns`: newsletter, kaistian, magazine, annual, report, 소식지 패턴은 제외한다.
+- `include_url_patterns`: 특정 사이트에서 반드시 포함해야 하는 파일이 있으면 source별로 override한다.
+- `skip_unknown_size`: 서버가 `content-length`를 주지 않아도 기본적으로는 다운로드를 시도한다.
+
+이 정책은 모든 사이트에 공통 적용하고, 사이트별 예외만 설정에서 override한다. 그래서 새 대학원 사이트를 추가할 때 코드 수정 없이 YAML만으로 대용량/저관련 파일 정책을 조정할 수 있다.
 
 ## 전처리 범위
 
-현재 raw 수집 단계에서는 PDF 텍스트 추출, 강한 노이즈 제거, 정형화, 중복 제거를 하지 않는다. 이유는 다음과 같다.
+raw 수집 단계에서는 PDF 텍스트 추출, 강한 노이즈 제거, 정형화, 중복 제거를 하지 않는다. 이유는 다음과 같다.
 
 - raw data는 재현성과 감사 가능성이 중요하다.
 - 중복 제거를 수집 중에 강하게 하면 나중에 원인을 추적하기 어렵다.
 - route shell, rendered HTML, PDF 추출문처럼 출처가 다른 텍스트는 processed 단계에서 품질 기준을 정해 병합하는 편이 안전하다.
 
-따라서 raw 수집 단계는 원본 보존과 출처 metadata 기록에 집중하고, PDF 텍스트 추출, 중복 제거, 품질 정리는 processed/chunk 단계에서 처리한다.
+따라서 raw 수집 단계는 원본 보존과 출처 metadata 기록에 집중하고, PDF 텍스트 추출, 중복 제거, 품질 정리는 processed/chunk 단계에서 처리한다. 전처리에서 제외된 항목은 `processed/filtered.jsonl`에 남겨 어떤 기준 때문에 벡터 대상에서 빠졌는지 추적한다.
+
+현재 기본 전처리 필터는 다음을 제외한다.
+
+- 같은 sha256을 가진 중복 raw 파일
+- 같은 정규화 텍스트를 가진 중복 문서
+- 같은 정규화 텍스트를 가진 중복 chunk
+- 텍스트가 너무 짧은 문서
+- SPA route HTML shell
+- 30MB 초과 PDF
+- newsletter, kaistian, magazine, annual, report, 소식지 패턴의 PDF
+- vendor 성격의 JavaScript asset
+
+KAIST 본원 사이트는 사이트 범위가 넓기 때문에 processed 단계에서 HTML 문서를 `/kr/html/admission/`, `/kr/html/edu/` 중심으로 제한한다. 본원 사이트의 일반 소개, 캠퍼스, 연구 홍보, 뉴스레터는 AI 대학원 RAG의 핵심 질문에 비해 노이즈가 될 가능성이 높기 때문이다.
 
 ## 실행 명령
 
@@ -188,7 +215,7 @@ python -m kaist_crawler run --config configs\kaist_ai_sources.yml --output data 
 문법 검사는 다음 명령으로 수행한다.
 
 ```powershell
-python -m py_compile kaist_crawler\__main__.py kaist_crawler\__init__.py kaist_crawler\models.py kaist_crawler\config.py kaist_crawler\http_client.py kaist_crawler\store.py kaist_crawler\extractors.py kaist_crawler\rendering.py kaist_crawler\processor.py kaist_crawler\vector_store.py kaist_crawler\adapters.py kaist_crawler\pipeline.py kaist_crawler\cli.py
+python -m py_compile kaist_crawler\__main__.py kaist_crawler\__init__.py kaist_crawler\models.py kaist_crawler\config.py kaist_crawler\http_client.py kaist_crawler\store.py kaist_crawler\extractors.py kaist_crawler\rendering.py kaist_crawler\policies.py kaist_crawler\processor.py kaist_crawler\vector_store.py kaist_crawler\adapters.py kaist_crawler\pipeline.py kaist_crawler\cli.py
 ```
 
 AX 기준 SPA 렌더링과 PDF 추출이 processed까지 들어가는지 확인하려면 다음 명령을 사용한다.
@@ -215,6 +242,8 @@ python -m kaist_crawler run --config configs\kaist_ai_sources.yml --output data_
 
 - raw data를 먼저 저장한다.
 - 다운로드 파일은 실제 파일 응답인지 검증한다.
+- 대용량/저관련 파일은 raw file policy로 제한하고 제외 기록을 남긴다.
 - 텍스트 추출은 raw data에서 재현 가능해야 한다.
+- RAG 품질 기준은 processing filter policy에서 조정하고 제외 기록을 남긴다.
 - 실패는 errors에 기록하고 다음 URL 수집을 계속한다.
 - metadata에는 citation에 필요한 source URL과 raw path를 남긴다.

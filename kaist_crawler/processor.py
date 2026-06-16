@@ -15,6 +15,7 @@ from .extractors import (
     slugify,
 )
 from .models import Chunk, Document, RawRecord, SourceConfig
+from .policies import ProcessingFilterPolicy, normalized_text_hash
 from .store import safe_filename, stable_id
 
 
@@ -22,13 +23,19 @@ def process_raw_documents(
     *,
     output_root: str | Path,
     sources: list[SourceConfig],
-) -> tuple[list[Document], list[Chunk], list[dict]]:
+) -> tuple[list[Document], list[Chunk], list[dict], list[dict]]:
     output_root = Path(output_root)
     source_by_id = {source.id: source for source in sources}
+    policy_by_site = {
+        source.id: ProcessingFilterPolicy.from_options(source.processing_options.get("filter_policy", {}))
+        for source in sources
+    }
     records, errors = load_raw_records(output_root=output_root, sources=sources)
     documents: list[Document] = []
+    filtered: list[dict] = []
     bundle_texts_by_site: dict[str, list[str]] = defaultdict(list)
     seen_bundle_texts: set[tuple[str, str]] = set()
+    seen_raw_sha: set[str] = set()
 
     for record in records:
         source = source_by_id.get(record.site)
@@ -48,6 +55,27 @@ def process_raw_documents(
         category = raw_category(record)
         suffix = raw_path.suffix.lower()
         content_type = record.content_type.lower()
+        policy = policy_by_site.get(record.site, ProcessingFilterPolicy())
+        decision = policy.evaluate_raw_record(
+            record=record,
+            raw_path=raw_path,
+            category=category,
+            seen_sha=seen_raw_sha,
+        )
+        if decision.skip:
+            filtered.append(
+                filter_event(
+                    stage="filter_raw_record",
+                    reason=decision.reason,
+                    site=record.site,
+                    source_url=record.canonical_url,
+                    raw_path=str(raw_path.as_posix()),
+                    metadata=decision.metadata,
+                )
+            )
+            continue
+        seen_raw_sha.add(record.sha256)
+
         try:
             if category == "pages" and ("html" in content_type or suffix in {"", ".html", ".htm"}):
                 process_html_record(documents, source=source, record=record, raw_path=raw_path)
@@ -78,8 +106,12 @@ def process_raw_documents(
             metadata={"document_type": "spa_bundle_text"},
         )
 
+    documents, document_filter_events = filter_documents(documents, policy_by_site)
+    filtered.extend(document_filter_events)
     chunks = chunk_documents(documents)
-    return documents, chunks, errors
+    chunks, chunk_filter_events = filter_chunks(chunks, policy_by_site)
+    filtered.extend(chunk_filter_events)
+    return documents, chunks, errors, filtered
 
 
 def load_raw_records(
@@ -314,6 +346,99 @@ def add_document(
     )
 
 
+def filter_documents(
+    documents: list[Document],
+    policy_by_site: dict[str, ProcessingFilterPolicy],
+) -> tuple[list[Document], list[dict]]:
+    kept: list[Document] = []
+    filtered: list[dict] = []
+    seen_text_hashes: set[str] = set()
+
+    for document in documents:
+        policy = policy_by_site.get(document.site, ProcessingFilterPolicy())
+        decision = policy.evaluate_document(document=document, seen_text_hashes=seen_text_hashes)
+        if decision.skip:
+            filtered.append(
+                filter_event(
+                    stage="filter_document",
+                    reason=decision.reason,
+                    site=document.site,
+                    source_url=document.source_url,
+                    raw_path=document.raw_path,
+                    metadata={
+                        "doc_id": document.doc_id,
+                        "title": document.title,
+                        "document_type": document.metadata.get("document_type", ""),
+                        "text_chars": len(document.text),
+                        **(decision.metadata or {}),
+                    },
+                )
+            )
+            continue
+
+        text_hash = (decision.metadata or {}).get("text_hash") or normalized_text_hash(document.text)
+        seen_text_hashes.add(str(text_hash))
+        kept.append(document)
+
+    return kept, filtered
+
+
+def filter_chunks(
+    chunks: list[Chunk],
+    policy_by_site: dict[str, ProcessingFilterPolicy],
+) -> tuple[list[Chunk], list[dict]]:
+    kept: list[Chunk] = []
+    filtered: list[dict] = []
+    seen_chunk_hashes: set[str] = set()
+
+    for chunk in chunks:
+        policy = policy_by_site.get(chunk.site, ProcessingFilterPolicy())
+        text_hash = normalized_text_hash(chunk.text)
+        if policy.skip_duplicate_chunks and text_hash in seen_chunk_hashes:
+            filtered.append(
+                filter_event(
+                    stage="filter_chunk",
+                    reason="duplicate_chunk_text",
+                    site=chunk.site,
+                    source_url=chunk.source_url,
+                    raw_path=str(chunk.metadata.get("raw_path", "")),
+                    metadata={
+                        "chunk_id": chunk.chunk_id,
+                        "doc_id": chunk.doc_id,
+                        "chunk_index": chunk.chunk_index,
+                        "text_hash": text_hash,
+                    },
+                )
+            )
+            continue
+
+        seen_chunk_hashes.add(text_hash)
+        kept.append(chunk)
+
+    return kept, filtered
+
+
+def filter_event(
+    *,
+    stage: str,
+    reason: str,
+    site: str,
+    source_url: str,
+    raw_path: str | None,
+    metadata: dict | None = None,
+) -> dict:
+    event_metadata = dict(metadata or {})
+    if raw_path:
+        event_metadata.setdefault("raw_path", raw_path)
+    return {
+        "site": site,
+        "stage": stage,
+        "url": source_url,
+        "reason": reason,
+        "metadata": event_metadata,
+    }
+
+
 def resolve_raw_path(record: RawRecord, output_root: Path) -> Path:
     raw_path = Path(record.raw_path)
     candidates = [raw_path]
@@ -356,4 +481,3 @@ def processing_error(
         "error": str(error),
         "metadata": extra_metadata,
     }
-

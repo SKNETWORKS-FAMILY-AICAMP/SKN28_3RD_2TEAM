@@ -32,7 +32,7 @@ def run_crawl(
         clean_output(output_root, targets=("raw", "processed", "vector"))
 
     _, crawl_errors = crawl_sources_raw(sources=sources, output_root=output_root)
-    documents, chunks, process_errors = process_raw_data_from_sources(
+    documents, chunks, _process_errors, _ = process_raw_data_from_sources(
         sources=sources,
         output_root=output_root,
         clean=False,
@@ -71,7 +71,7 @@ def process_raw_data(
     output_root: str | Path,
     source_ids: set[str] | None = None,
     clean: bool = False,
-) -> tuple[list[Document], list[Chunk], list[dict]]:
+) -> tuple[list[Document], list[Chunk], list[dict], list[dict]]:
     sources = load_sources(config_path, source_ids)
     return process_raw_data_from_sources(sources=sources, output_root=output_root, clean=clean)
 
@@ -101,19 +101,20 @@ def process_raw_data_from_sources(
     output_root: str | Path,
     clean: bool = False,
     extra_errors: list[dict] | None = None,
-) -> tuple[list[Document], list[Chunk], list[dict]]:
+) -> tuple[list[Document], list[Chunk], list[dict], list[dict]]:
     output_root = Path(output_root)
     if clean:
         clean_output(output_root, targets=("processed",))
     processed_root = output_root / "processed"
     processed_root.mkdir(parents=True, exist_ok=True)
-    documents, chunks, errors = process_raw_documents(output_root=output_root, sources=sources)
+    documents, chunks, errors, filtered = process_raw_documents(output_root=output_root, sources=sources)
     all_errors = list(extra_errors or [])
     all_errors.extend(errors)
     write_jsonl(processed_root / "documents.jsonl", [doc.to_dict() for doc in documents])
     write_jsonl(processed_root / "chunks.jsonl", [chunk.to_dict() for chunk in chunks])
     write_jsonl(processed_root / "errors.jsonl", all_errors)
-    return documents, chunks, all_errors
+    write_jsonl(processed_root / "filtered.jsonl", filtered)
+    return documents, chunks, all_errors, filtered
 
 
 def build_vectors_from_chunks(
