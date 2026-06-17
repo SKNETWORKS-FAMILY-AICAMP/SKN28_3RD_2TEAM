@@ -36,6 +36,18 @@ class RagMetadataTests(unittest.TestCase):
         self.assertEqual(metadata["source_type"], "faculty")
         self.assertEqual(metadata["content_type"], "person")
 
+    def test_unknown_site_uses_source_id_dept_before_keyword_detection(self) -> None:
+        metadata = normalize_rag_metadata(
+            site="kaist_physics",
+            source_url="https://physics.kaist.ac.kr/",
+            title="Physics",
+            text="AI seminar and admission notice",
+            metadata={"document_type": "html"},
+        )
+
+        self.assertEqual(metadata["dept"], "physics")
+        self.assertEqual(metadata["dept_name"], "Physics")
+
     def test_chunking_reclassifies_by_chunk_text_and_preserves_page(self) -> None:
         document = Document(
             doc_id="doc1",

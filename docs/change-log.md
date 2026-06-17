@@ -15,6 +15,121 @@
 ## 2026-06-17
 
 ### 변경
+- 자연과학대학 계열 5개 사이트를 `analyze-site`로 분류하고, 별도 수집 config `configs/kaist_natural_sciences_sources.yml`를 생성했다.
+- 자연과학대학 수집 결과를 `data/natural_sciences` 아래에 저장하고 전처리까지 실행했다.
+- 정적 HTML adapter가 확장자 없는 링크(`/faculty`, `/notice` 등)를 따라가도록 개선했다.
+- 정적 HTML adapter가 `index.php?mid=...`, `index.php?document_srl=...` 같은 query 기반 페이지를 따라가도록 개선했다.
+- `javascript` pseudo-link와 `/@facebook` 같은 SNS pseudo-link를 HTML page 후보에서 제외하도록 개선했다.
+- 새 source가 기존 AI 학과 keyword에 의해 `aic`, `ax`, `fx`로 오분류되지 않도록 source id 기반 `dept` 기본값을 추가했다.
+- 사이트 분석기의 첨부파일 후보 필터를 강화해 JS 코드 조각이 `.doc` 파일로 오탐되는 문제를 줄였다.
+- 자연과학대학 수집 품질 평가 문서 `docs/natural-sciences-crawl-quality.md`를 추가했다.
+
+### 이유
+- 물리학과 사이트는 query 기반 라우팅이라 기존 정적 HTML adapter가 root 한 페이지만 수집했다.
+- 자연과학 사이트는 `dept`가 없는 상태에서 본문 keyword로 AI 학과에 오분류되어 metadata filter 검색 품질을 떨어뜨릴 수 있었다.
+- 분석기 추천 config를 실제 사이트에 적용해 보면서 다른 대학원 확장 시 필요한 crawler 보강점을 검증하기 위해서다.
+
+### 실행
+```powershell
+python -m kaist_crawler analyze-site https://natsci.kaist.ac.kr --id kaist_natsci --name "KAIST College of Natural Sciences" --output configs\analysis_kaist_natsci.yml
+python -m kaist_crawler analyze-site https://physics.kaist.ac.kr --id kaist_physics --name "KAIST Department of Physics" --output configs\analysis_kaist_physics.yml
+python -m kaist_crawler analyze-site https://mathsci.kaist.ac.kr/home/ --id kaist_mathsci --name "KAIST Department of Mathematical Sciences" --output configs\analysis_kaist_mathsci.yml
+python -m kaist_crawler analyze-site https://chem.kaist.ac.kr/main/ --id kaist_chem --name "KAIST Department of Chemistry" --output configs\analysis_kaist_chem.yml
+python -m kaist_crawler analyze-site https://quantum.kaist.ac.kr/ --id kaist_quantum --name "KAIST Graduate School of Quantum Science and Technology" --output configs\analysis_kaist_quantum.yml
+python -m kaist_crawler raw --config configs\kaist_natural_sciences_sources.yml --output data\natural_sciences --clean
+python -m kaist_crawler raw --config configs\kaist_natural_sciences_sources.yml --output data\natural_sciences --source kaist_physics
+python -m kaist_crawler process --config configs\kaist_natural_sciences_sources.yml --output data\natural_sciences --clean
+```
+
+### 결과
+```text
+raw unique=491
+documents=808
+chunks=1895
+errors=7
+filtered=1574
+```
+
+chunk site 분포:
+
+```text
+kaist_mathsci=1243
+kaist_physics=193
+kaist_natsci=161
+kaist_chem=152
+kaist_quantum=146
+```
+
+chunk source type:
+
+```text
+html=896
+pdf=999
+```
+
+chunk dept:
+
+```text
+natsci=161
+physics=193
+mathsci=1243
+chem=152
+quantum=146
+```
+
+### 평가
+- 화학과, 양자대학원, 물리학과는 교수진/입학/교과목/연구/공지 HTML 품질이 양호하다.
+- 수리과학과는 수집량은 많지만 PDF가 과도하게 많고, 과거 시험/이미지 기반 PDF가 섞여 벡터 저장 전 필터링이 필요하다.
+- 자연과학대학 본부는 학과 소개와 연구사업 정보는 유용하지만, 오시는 길/연구비 통계/일반 표 데이터는 RAG 목적에 따라 제외 후보이다.
+
+### 남은 이슈
+- PDF viewer URL의 `file=` 파라미터에서 실제 PDF URL을 추출하면 수리과학과 PDF 수집 오류가 줄어든다.
+- `research_highlight`, `notice`, `seminar`, `old_exam` 같은 content subtype을 추가하면 자연과학 사이트의 RAG 품질 평가가 더 쉬워진다.
+
+## 2026-06-17
+
+### 변경
+- 새 대학원 URL을 분석해 수집 config 초안을 추천하는 `kaist_crawler/site_analyzer.py`를 추가했다.
+- CLI에 `python -m kaist_crawler analyze-site <url>` 명령을 추가했다.
+- 분석기는 정적 HTML, SPA, SPA+Google Sheets 구조를 구분하고 `adapter`, `routes`, `known_files`, `robots_url`, `sitemap_status`, `raw` 옵션 초안을 추천한다.
+- `tests/test_site_analyzer.py`를 추가해 정적 HTML 사이트와 SPA+Google Sheets 사이트의 추천 결과를 검증했다.
+- README에 사이트 분석기 사용법과 새 모듈 역할을 추가했다.
+
+### 이유
+- 다른 대학원 사이트로 확장하기 전에 바로 수집을 실행하면 사이트 구조 차이 때문에 raw 데이터 품질이 흔들릴 수 있다.
+- 먼저 사이트 구조를 분석하고 config 초안을 사람이 검토한 뒤 수집하면, 전처리 개선이 KAIST 구조에만 과적합되는 위험을 줄일 수 있다.
+- 분석기 출력의 `recommended_source`를 `configs/kaist_ai_sources.yml`에 붙여 넣는 방식이면 기존 raw/process/vector 명령 흐름을 유지할 수 있다.
+
+### 사용
+```powershell
+python -m kaist_crawler analyze-site https://example.edu/graduate --id example_graduate --name "Example Graduate School" --output configs\recommended_example.yml
+```
+
+### 검증
+```powershell
+python -m py_compile kaist_crawler\site_analyzer.py kaist_crawler\cli.py tests\test_site_analyzer.py
+python -m unittest tests.test_site_analyzer
+python -m unittest discover -s tests
+python -m kaist_crawler analyze-site --help
+python -m kaist_crawler process --config configs\kaist_ai_sources.yml --output data --clean
+```
+
+결과:
+
+```text
+test_site_analyzer=2 OK
+tests=23 OK
+analyze-site help OK
+documents=134 chunks=185 errors=0 filtered=911
+```
+
+### 남은 이슈
+- Google Sheets를 사용하는 사이트는 spreadsheet id까지만 자동 감지하고, sheet 이름과 row mapping은 아직 사람이 채워야 한다.
+- 분석기는 config 추천기이며, 추천 결과를 검토 없이 바로 대규모 크롤링하는 용도는 아니다.
+
+## 2026-06-17
+
+### 변경
 - Google Sheets row 매핑 로직을 `kaist_crawler/processor.py`에서 `kaist_crawler/sheet_mapping.py`로 분리했다.
 - `processor.py`의 기존 `add_sheet_row_documents` 함수는 유지하되, 내부에서 새 `sheet_row_documents` 변환 함수를 호출하도록 바꿨다.
 

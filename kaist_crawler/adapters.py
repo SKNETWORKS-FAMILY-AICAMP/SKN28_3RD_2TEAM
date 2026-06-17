@@ -235,12 +235,20 @@ class StaticHtmlAdapter(BaseAdapter):
         exclude_paths = set(options.get("exclude_paths", []))
         links = []
         for tag in soup.find_all("a", href=True):
-            href = tag["href"]
-            if href.startswith(("#", "mailto:", "tel:", "javascript:")):
+            href = str(tag["href"]).strip()
+            lowered_href = href.lower()
+            if (
+                not href
+                or href.startswith("#")
+                or lowered_href.startswith(("mailto:", "tel:", "javascript"))
+                or lowered_href in {"void(0)", "void(0);"}
+            ):
                 continue
             url = urljoin(base_url, href)
             parsed = urlparse(url)
             if parsed.netloc not in allowed_netlocs:
+                continue
+            if parsed.path.rstrip("/").rsplit("/", 1)[-1].startswith("@"):
                 continue
             if include_prefixes and not parsed.path.startswith(include_prefixes):
                 continue
@@ -248,8 +256,10 @@ class StaticHtmlAdapter(BaseAdapter):
                 continue
             if exclude_prefixes and parsed.path.startswith(exclude_prefixes):
                 continue
-            if parsed.path.endswith(".html") or parsed.path in ("", "/"):
-                clean = parsed._replace(fragment="").geturl()
+            suffix = Path(parsed.path).suffix.lower()
+            is_query_page = suffix == ".php" and any(key in parsed.query for key in ("mid=", "document_srl="))
+            if suffix in {"", ".html", ".htm"} or parsed.path in ("", "/") or is_query_page:
+                clean = parsed._replace(fragment="", query=parsed.query if is_query_page else "").geturl()
                 if clean not in links:
                     links.append(clean)
         return links

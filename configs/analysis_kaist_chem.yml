@@ -1,0 +1,97 @@
+input_url: https://chem.kaist.ac.kr/main/
+final_url: https://chem.kaist.ac.kr/main/
+source_id: kaist_chem
+name: KAIST Department of Chemistry
+title: 메인 - KAIST 화학과
+site_type: static_html
+adapter: static_html
+confidence: 0.87
+routes:
+- ./
+- /
+- /introduce
+- /faculty
+- /professor_emeritus
+- /undergraduate
+- /curriculum
+- /scholarship
+- /course
+- /requirement
+- /research_vision
+- /research_field
+- /research_center
+- /research_facility
+- /news
+- /notice
+- /research_results
+- /seminar
+- /research_results/index
+- /research_results/view/id/2910
+- /research_results/view/id/2909
+- /research_results/view/id/2908
+- /research_results/view/id/2905
+- /research_results/view/id/2903
+known_files: []
+robots_url: https://chem.kaist.ac.kr/robots.txt
+robots_status: valid
+sitemap_url: https://chem.kaist.ac.kr/sitemap.xml
+sitemap_status: valid_xml
+google_sheets: {}
+dynamic_routes: {}
+raw:
+  max_pages: 80
+  follow_html_links: true
+crawl_notes:
+- Detected site_type=static_html, adapter=static_html, confidence=0.87.
+- Recommended 24 initial route(s) and 0 known file(s).
+- Use static HTML crawling with bounded same-origin link following.
+risks: []
+evidence:
+  visible_text_chars: 6295
+  asset_count: 6
+  fetched_asset_text_count: 5
+  module_script_count: 0
+  app_root_count: 0
+  google_sheet_count: 0
+  spa_score: 2
+  static_score: 4
+recommended_source:
+  id: kaist_chem
+  name: KAIST Department of Chemistry
+  base_url: https://chem.kaist.ac.kr/main/
+  adapter: static_html
+  robots_url: https://chem.kaist.ac.kr/robots.txt
+  sitemap_status: valid_xml
+  routes:
+  - ./
+  - /
+  - /introduce
+  - /faculty
+  - /professor_emeritus
+  - /undergraduate
+  - /curriculum
+  - /scholarship
+  - /course
+  - /requirement
+  - /research_vision
+  - /research_field
+  - /research_center
+  - /research_facility
+  - /news
+  - /notice
+  - /research_results
+  - /seminar
+  - /research_results/index
+  - /research_results/view/id/2910
+  - /research_results/view/id/2909
+  - /research_results/view/id/2908
+  - /research_results/view/id/2905
+  - /research_results/view/id/2903
+  known_files: []
+  crawl_notes:
+  - Detected site_type=static_html, adapter=static_html, confidence=0.87.
+  - Recommended 24 initial route(s) and 0 known file(s).
+  - Use static HTML crawling with bounded same-origin link following.
+  raw:
+    max_pages: 80
+    follow_html_links: true

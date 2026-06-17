@@ -1,0 +1,98 @@
+input_url: https://mathsci.kaist.ac.kr/home/
+final_url: https://mathsci.kaist.ac.kr/home/
+source_id: kaist_mathsci
+name: KAIST Department of Mathematical Sciences
+title: KAIST 수리과학과
+site_type: static_html
+adapter: static_html
+confidence: 0.87
+routes:
+- ./
+- news/news/
+- student-news/
+- alumni-news/
+- intro/intro/
+- intro/direction/
+- intro/committee/
+- /ko/xe/notice/
+- intro/logo2022/
+- intro/employment/
+- edu/requirement/
+- people/professor/
+- people/postdoc/
+- people/staff/
+- research/field/
+- research/research-highlights/
+- schedules/seminar/
+- /ko/xe/news/
+- /newsletter/소식지/
+- 2026/04/%ea%b9%80%ec%9e%ac%ea%b2%bd-%eb%b0%b0%eb%aa%85%ec%a7%84-%ea%b5%90%ec%88%98-kaist-research-day/
+- student-news/%ea%b9%80%eb%b2%94%ed%98%b8-%ec%b5%9c%ec%84%9d%ed%98%84-%ed%95%99%ec%83%9d-4%eb%8b%a8%ea%b3%84-bk21%ec%82%ac%ec%97%85-%ec%b0%b8%ec%97%ac%eb%8c%80%ed%95%99%ec%9b%90%ec%83%9d-%ed%95%b4%ec%99%b8/
+- student-news/%ec%9d%b4%eb%b3%b8%ec%9a%b0-%ed%95%99%ec%83%9d-kaist-q-day-%ed%8a%b9%eb%b3%84%ed%8f%ac%ec%83%81-%ec%88%98%ec%83%81/
+- student-news/%ed%95%9c%ec%a2%85%ec%9d%b8%e3%86%8d%ec%9d%b4%eb%b3%b8%ec%9a%b0%e3%86%8d%ec%86%a1%ec%9c%a4%eb%af%bc-%ed%95%99%ec%83%9d-2024%eb%85%84-kaist-%eb%8c%80%ed%95%99%ec%9b%90%ec%83%9d-%ec%9a%b0%ec%88%98/
+- /gradseminar/
+known_files: []
+robots_url: https://mathsci.kaist.ac.kr/robots.txt
+robots_status: valid
+sitemap_url: https://mathsci.kaist.ac.kr/sitemap.xml
+sitemap_status: missing_or_unreachable
+google_sheets: {}
+dynamic_routes: {}
+raw:
+  max_pages: 80
+  follow_html_links: true
+crawl_notes:
+- Detected site_type=static_html, adapter=static_html, confidence=0.87.
+- Recommended 24 initial route(s) and 0 known file(s).
+- Use static HTML crawling with bounded same-origin link following.
+risks:
+- sitemap status is missing_or_unreachable; do not rely on sitemap-only crawling.
+evidence:
+  visible_text_chars: 6253
+  asset_count: 4
+  fetched_asset_text_count: 4
+  module_script_count: 0
+  app_root_count: 0
+  google_sheet_count: 0
+  spa_score: 2
+  static_score: 4
+recommended_source:
+  id: kaist_mathsci
+  name: KAIST Department of Mathematical Sciences
+  base_url: https://mathsci.kaist.ac.kr/home/
+  adapter: static_html
+  robots_url: https://mathsci.kaist.ac.kr/robots.txt
+  sitemap_status: missing_or_unreachable
+  routes:
+  - ./
+  - news/news/
+  - student-news/
+  - alumni-news/
+  - intro/intro/
+  - intro/direction/
+  - intro/committee/
+  - /ko/xe/notice/
+  - intro/logo2022/
+  - intro/employment/
+  - edu/requirement/
+  - people/professor/
+  - people/postdoc/
+  - people/staff/
+  - research/field/
+  - research/research-highlights/
+  - schedules/seminar/
+  - /ko/xe/news/
+  - /newsletter/소식지/
+  - 2026/04/%ea%b9%80%ec%9e%ac%ea%b2%bd-%eb%b0%b0%eb%aa%85%ec%a7%84-%ea%b5%90%ec%88%98-kaist-research-day/
+  - student-news/%ea%b9%80%eb%b2%94%ed%98%b8-%ec%b5%9c%ec%84%9d%ed%98%84-%ed%95%99%ec%83%9d-4%eb%8b%a8%ea%b3%84-bk21%ec%82%ac%ec%97%85-%ec%b0%b8%ec%97%ac%eb%8c%80%ed%95%99%ec%9b%90%ec%83%9d-%ed%95%b4%ec%99%b8/
+  - student-news/%ec%9d%b4%eb%b3%b8%ec%9a%b0-%ed%95%99%ec%83%9d-kaist-q-day-%ed%8a%b9%eb%b3%84%ed%8f%ac%ec%83%81-%ec%88%98%ec%83%81/
+  - student-news/%ed%95%9c%ec%a2%85%ec%9d%b8%e3%86%8d%ec%9d%b4%eb%b3%b8%ec%9a%b0%e3%86%8d%ec%86%a1%ec%9c%a4%eb%af%bc-%ed%95%99%ec%83%9d-2024%eb%85%84-kaist-%eb%8c%80%ed%95%99%ec%9b%90%ec%83%9d-%ec%9a%b0%ec%88%98/
+  - /gradseminar/
+  known_files: []
+  crawl_notes:
+  - Detected site_type=static_html, adapter=static_html, confidence=0.87.
+  - Recommended 24 initial route(s) and 0 known file(s).
+  - Use static HTML crawling with bounded same-origin link following.
+  raw:
+    max_pages: 80
+    follow_html_links: true

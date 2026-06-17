@@ -54,6 +54,14 @@ python -m kaist_crawler process --config configs\kaist_ai_sources.yml --output d
 python -m kaist_crawler run --config configs\kaist_ai_sources.yml --output data --source kaist_ai_systems --skip-vector
 ```
 
+다른 대학원 사이트를 추가하기 전에는 사이트 분석기로 구조와 추천 config를 먼저 확인합니다.
+
+```powershell
+python -m kaist_crawler analyze-site https://example.edu/graduate --id example_graduate --name "Example Graduate School" --output configs\recommended_example.yml
+```
+
+분석기는 정적 HTML/SPA/Google Sheets 사용 여부, robots/sitemap 상태, route 후보, 첨부파일 후보, adapter 추천, raw 수집 옵션 초안을 출력합니다. 출력된 `recommended_source`를 검토한 뒤 `configs/kaist_ai_sources.yml`의 `sources` 아래에 붙여 넣고, 필요한 route와 sheet mapping을 보완해서 raw 수집을 실행합니다.
+
 재수집 전에 command별 출력물을 지우려면 `--clean`을 사용합니다.
 
 ```powershell
@@ -98,8 +106,10 @@ kaist_ai_crawler_project/
     __main__.py
     cli.py
     pipeline.py
+    site_analyzer.py
     adapters.py
     processor.py
+    sheet_mapping.py
     policies.py
     config.py
     http_client.py
@@ -145,7 +155,9 @@ data/
 ## 모듈 역할
 
 - `adapters.py`: 사이트별 raw 수집만 담당합니다.
+- `site_analyzer.py`: 새 대학원 URL을 분석해 adapter, route, known_files, raw 옵션 config 초안을 추천합니다.
 - `processor.py`: `raw/*/manifest.jsonl`을 읽어 documents/chunks를 생성합니다. PDF 텍스트 추출도 여기서 수행합니다.
+- `sheet_mapping.py`: Google Sheets 같은 정형 row 데이터를 RAG 문서 후보로 바꾸는 매핑 로직을 담당합니다.
 - `policies.py`: raw 파일 다운로드 정책과 전처리 필터 정책을 정의합니다.
 - `pipeline.py`: `raw`, `process`, `run`, `build-vector` 흐름을 조합합니다.
 - `extractors.py`: HTML, JS literal, PDF, Google Sheets JSON, chunking 관련 순수 추출 함수를 제공합니다.
@@ -204,7 +216,7 @@ python -c "from pathlib import Path; print(Path('README.md').read_text(encoding=
 ## 검증 명령
 
 ```powershell
-python -m py_compile kaist_crawler\__main__.py kaist_crawler\__init__.py kaist_crawler\models.py kaist_crawler\config.py kaist_crawler\http_client.py kaist_crawler\store.py kaist_crawler\extractors.py kaist_crawler\rendering.py kaist_crawler\policies.py kaist_crawler\processor.py kaist_crawler\vector_store.py kaist_crawler\adapters.py kaist_crawler\pipeline.py kaist_crawler\cli.py tests\test_config.py tests\test_policies.py tests\test_sheet_mapping.py
+python -m py_compile kaist_crawler\__main__.py kaist_crawler\__init__.py kaist_crawler\models.py kaist_crawler\config.py kaist_crawler\http_client.py kaist_crawler\store.py kaist_crawler\extractors.py kaist_crawler\rendering.py kaist_crawler\policies.py kaist_crawler\processor.py kaist_crawler\sheet_mapping.py kaist_crawler\site_analyzer.py kaist_crawler\vector_store.py kaist_crawler\adapters.py kaist_crawler\pipeline.py kaist_crawler\cli.py tests\test_config.py tests\test_policies.py tests\test_sheet_mapping.py tests\test_site_analyzer.py
 python -m unittest discover -s tests
 python -m kaist_crawler process --config configs\kaist_ai_sources.yml --output data --clean
 ```

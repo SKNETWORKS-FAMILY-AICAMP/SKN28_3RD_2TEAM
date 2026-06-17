@@ -1,0 +1,196 @@
+version: 1
+checked_at: '2026-06-17'
+defaults:
+  request_timeout_seconds: 30
+  polite_delay_seconds: 0.2
+  file_extensions:
+  - pdf
+  - hwp
+  - hwpx
+  - doc
+  - docx
+  - ppt
+  - pptx
+  - xls
+  - xlsx
+  raw_store:
+    root: data/raw
+  processed_store:
+    root: data/processed
+  vector_store:
+    provider: chroma
+    path: data/vector/chroma
+  raw:
+    file_policy:
+      max_file_size_mb: 30
+      exclude_url_patterns:
+      - (?i)newsletter
+      - (?i)magazine
+      - (?i)annual
+      - (?i)report
+      - 소식지
+      include_url_patterns: []
+      skip_unknown_size: false
+  processing:
+    filter_policy:
+      skip_duplicate_raw_sha: true
+      skip_duplicate_document_text: true
+      skip_duplicate_chunks: true
+      min_text_chars: 200
+      min_text_chars_by_type:
+        html: 200
+        rendered_html: 200
+        html_shell: 300
+        spa_bundle_text: 200
+        google_sheet: 80
+        news: 100
+        faculty: 50
+        pdf: 80
+      exclude_document_types:
+      - html_shell
+      - google_sheet
+      - spa_bundle_text
+      max_pdf_size_mb: 30
+      exclude_pdf_url_patterns:
+      - (?i)newsletter
+      - (?i)magazine
+      - (?i)annual
+      - (?i)report
+      - 소식지
+      exclude_asset_url_patterns:
+      - (?i)/vendor
+      - (?i)vendor-
+      - (?i)chunk-vendors
+      include_html_url_patterns: []
+      exclude_html_url_patterns: []
+sources:
+- id: kaist_natsci
+  name: KAIST College of Natural Sciences
+  base_url: https://natsci.kaist.ac.kr/
+  adapter: static_html
+  robots_url: https://natsci.kaist.ac.kr/robots.txt
+  sitemap_status: valid_xml
+  routes:
+  - /
+  - /news
+  - /news/view/id/149
+  - /news/view/id/148
+  - /news/view/id/146
+  known_files: []
+  crawl_notes:
+  - Detected site_type=static_html, adapter=static_html, confidence=0.87.
+  - Recommended 5 initial route(s) and 0 known file(s).
+  - Use static HTML crawling with bounded same-origin link following.
+  raw:
+    max_pages: 80
+    follow_html_links: true
+- id: kaist_physics
+  name: KAIST Department of Physics
+  base_url: https://physics.kaist.ac.kr/
+  adapter: static_html
+  robots_url: https://physics.kaist.ac.kr/robots.txt
+  sitemap_status: missing_or_unreachable
+  routes:
+  - /
+  known_files: []
+  crawl_notes:
+  - Detected site_type=static_html, adapter=static_html, confidence=0.87.
+  - Recommended 1 initial route(s) and 0 known file(s).
+  - Use static HTML crawling with bounded same-origin link following.
+  raw:
+    max_pages: 80
+    follow_html_links: true
+- id: kaist_mathsci
+  name: KAIST Department of Mathematical Sciences
+  base_url: https://mathsci.kaist.ac.kr/home/
+  adapter: static_html
+  robots_url: https://mathsci.kaist.ac.kr/robots.txt
+  sitemap_status: missing_or_unreachable
+  routes:
+  - ./
+  - news/news/
+  - student-news/
+  - alumni-news/
+  - intro/intro/
+  - intro/direction/
+  - intro/committee/
+  - /ko/xe/notice/
+  - intro/logo2022/
+  - intro/employment/
+  - edu/requirement/
+  - people/professor/
+  - people/postdoc/
+  - people/staff/
+  - research/field/
+  - research/research-highlights/
+  - schedules/seminar/
+  - /ko/xe/news/
+  - /newsletter/소식지/
+  - 2026/04/%ea%b9%80%ec%9e%ac%ea%b2%bd-%eb%b0%b0%eb%aa%85%ec%a7%84-%ea%b5%90%ec%88%98-kaist-research-day/
+  - student-news/%ea%b9%80%eb%b2%94%ed%98%b8-%ec%b5%9c%ec%84%9d%ed%98%84-%ed%95%99%ec%83%9d-4%eb%8b%a8%ea%b3%84-bk21%ec%82%ac%ec%97%85-%ec%b0%b8%ec%97%ac%eb%8c%80%ed%95%99%ec%9b%90%ec%83%9d-%ed%95%b4%ec%99%b8/
+  - student-news/%ec%9d%b4%eb%b3%b8%ec%9a%b0-%ed%95%99%ec%83%9d-kaist-q-day-%ed%8a%b9%eb%b3%84%ed%8f%ac%ec%83%81-%ec%88%98%ec%83%81/
+  - student-news/%ed%95%9c%ec%a2%85%ec%9d%b8%e3%86%8d%ec%9d%b4%eb%b3%b8%ec%9a%b0%e3%86%8d%ec%86%a1%ec%9c%a4%eb%af%bc-%ed%95%99%ec%83%9d-2024%eb%85%84-kaist-%eb%8c%80%ed%95%99%ec%9b%90%ec%83%9d-%ec%9a%b0%ec%88%98/
+  - /gradseminar/
+  known_files: []
+  crawl_notes:
+  - Detected site_type=static_html, adapter=static_html, confidence=0.87.
+  - Recommended 24 initial route(s) and 0 known file(s).
+  - Use static HTML crawling with bounded same-origin link following.
+  raw:
+    max_pages: 80
+    follow_html_links: true
+- id: kaist_chem
+  name: KAIST Department of Chemistry
+  base_url: https://chem.kaist.ac.kr/main/
+  adapter: static_html
+  robots_url: https://chem.kaist.ac.kr/robots.txt
+  sitemap_status: valid_xml
+  routes:
+  - ./
+  - /
+  - /introduce
+  - /faculty
+  - /professor_emeritus
+  - /undergraduate
+  - /curriculum
+  - /scholarship
+  - /course
+  - /requirement
+  - /research_vision
+  - /research_field
+  - /research_center
+  - /research_facility
+  - /news
+  - /notice
+  - /research_results
+  - /seminar
+  - /research_results/index
+  - /research_results/view/id/2910
+  - /research_results/view/id/2909
+  - /research_results/view/id/2908
+  - /research_results/view/id/2905
+  - /research_results/view/id/2903
+  known_files: []
+  crawl_notes:
+  - Detected site_type=static_html, adapter=static_html, confidence=0.87.
+  - Recommended 24 initial route(s) and 0 known file(s).
+  - Use static HTML crawling with bounded same-origin link following.
+  raw:
+    max_pages: 80
+    follow_html_links: true
+- id: kaist_quantum
+  name: KAIST Graduate School of Quantum Science and Technology
+  base_url: https://quantum.kaist.ac.kr/
+  adapter: static_html
+  robots_url: https://quantum.kaist.ac.kr/robots.txt
+  sitemap_status: valid_xml
+  routes:
+  - /
+  known_files: []
+  crawl_notes:
+  - Detected site_type=static_html, adapter=static_html, confidence=0.58.
+  - Recommended 1 initial route(s) and 0 known file(s).
+  - Use static HTML crawling with bounded same-origin link following.
+  raw:
+    max_pages: 80
+    follow_html_links: true

@@ -204,6 +204,14 @@ def normalize_rag_metadata(
     elif site == "kaist_main_kr" and not normalized.get("dept"):
         normalized.setdefault("dept", "kaist")
         normalized.setdefault("dept_name", "KAIST")
+    elif site in SITE_DEPARTMENT and not normalized.get("dept"):
+        department = SITE_DEPARTMENT[site]
+        normalized.setdefault("dept", department.code)
+        normalized.setdefault("dept_name", department.name)
+    elif not normalized.get("dept"):
+        dept, dept_name = generic_department_from_site(site)
+        normalized.setdefault("dept", dept)
+        normalized.setdefault("dept_name", dept_name)
     else:
         department = detect_department(
             site=site,
@@ -235,6 +243,15 @@ def normalize_rag_metadata(
             normalized["section"] = inferred_section
 
     return normalized
+
+
+def generic_department_from_site(site: str) -> tuple[str, str]:
+    code = re.sub(r"[^a-z0-9]+", "_", site.lower()).strip("_")
+    if code.startswith("kaist_"):
+        code = code.removeprefix("kaist_")
+    code = code or "unknown"
+    name = " ".join(part.upper() if len(part) <= 3 else part.title() for part in code.split("_"))
+    return code, name
 
 
 def detect_department(

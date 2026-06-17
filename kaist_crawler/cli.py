@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 
 from .pipeline import build_vectors_from_chunks, process_raw_data, run_crawl, run_raw_crawl
+from .site_analyzer import analysis_to_json, analysis_to_yaml, analyze_site
 from .vector_store import DEFAULT_OPENAI_EMBEDDING_MODEL
 
 
@@ -68,6 +69,16 @@ def build_parser() -> argparse.ArgumentParser:
     build.add_argument("--output", default="data", help="output data directory")
     add_embedding_args(build)
 
+    analyze = subparsers.add_parser("analyze-site", help="analyze a school site and recommend a source config")
+    analyze.add_argument("url", help="graduate school site URL to analyze")
+    analyze.add_argument("--id", default=None, help="source id to use in the recommended config")
+    analyze.add_argument("--name", default=None, help="source name to use in the recommended config")
+    analyze.add_argument("--format", choices=["yaml", "json"], default="yaml", help="output format")
+    analyze.add_argument("--output", default=None, help="optional path to write the analysis result")
+    analyze.add_argument("--max-routes", type=int, default=24, help="maximum recommended routes")
+    analyze.add_argument("--max-assets", type=int, default=5, help="maximum JS/CSS assets to inspect")
+    analyze.add_argument("--no-fetch-assets", action="store_true", help="skip JS/CSS asset inspection")
+
     return parser
 
 
@@ -128,6 +139,24 @@ def main(argv: list[str] | None = None) -> int:
             collection_name=args.collection,
         )
         print(f"chunks={count} vector_output={Path(args.output, 'vector').resolve()}")
+        return 0
+    if args.command == "analyze-site":
+        analysis = analyze_site(
+            args.url,
+            source_id=args.id,
+            name=args.name,
+            max_routes=args.max_routes,
+            max_assets=args.max_assets,
+            fetch_assets=not args.no_fetch_assets,
+        )
+        output = analysis_to_json(analysis) if args.format == "json" else analysis_to_yaml(analysis)
+        if args.output:
+            output_path = Path(args.output)
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            output_path.write_text(output, encoding="utf-8")
+            print(f"analysis_output={output_path.resolve()}")
+        else:
+            print(output)
         return 0
     parser.error("unknown command")
     return 2
