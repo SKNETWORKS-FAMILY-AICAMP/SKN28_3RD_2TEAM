@@ -104,6 +104,7 @@ def embed_texts(
             "embedding_dimensions": resolved_dimensions,
         }
     if provider == "openai":
+        load_openai_env(Path(".env"))
         resolved_model = model or os.getenv("OPENAI_EMBEDDING_MODEL") or DEFAULT_OPENAI_EMBEDDING_MODEL
         embeddings = openai_embeddings(
             texts,
@@ -129,6 +130,7 @@ def openai_embeddings(
 ) -> list[list[float]]:
     if not texts:
         return []
+    load_openai_env(Path(".env"))
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
         raise RuntimeError("OPENAI_API_KEY is required when embedding_provider is openai")
@@ -175,9 +177,23 @@ def _post_openai_embeddings(url: str, headers: dict[str, str], payload: dict[str
     raise RuntimeError(f"OpenAI embeddings request failed: {last_error}") from last_error
 
 
+def load_openai_env(path: Path) -> None:
+    if not path.exists():
+        return
+    for line in path.read_text(encoding="utf-8", errors="ignore").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        if key not in {"OPENAI_API_KEY", "OPENAI_BASE_URL", "OPENAI_EMBEDDING_MODEL"}:
+            continue
+        os.environ.setdefault(key, value.strip().strip('"').strip("'"))
+
+
 def default_collection_name(*, provider: str, model: str, dimensions: int | None) -> str:
     model_slug = re.sub(r"[^A-Za-z0-9_-]+", "_", model).strip("_")
-    parts = ["kaist_ai", provider, model_slug]
+    parts = ["graduate_rag", provider, model_slug]
     if dimensions:
         parts.append(str(dimensions))
     return "_".join(parts)

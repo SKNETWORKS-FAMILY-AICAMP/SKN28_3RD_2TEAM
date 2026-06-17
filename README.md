@@ -157,7 +157,7 @@ data/
 정책은 `configs/kaist_ai_sources.yml`에서 조정합니다. 다른 대학원 사이트를 추가할 때는 같은 기본 정책을 재사용하고, 사이트별로 필요한 범위만 override합니다.
 
 - raw file policy: `max_file_size_mb`, `exclude_url_patterns`, `include_url_patterns`로 대용량 뉴스레터·매거진·연례보고서 같은 파일 다운로드를 사전에 제한합니다.
-- processing filter policy: 중복 raw sha256, 중복 문서 텍스트, 중복 chunk, 너무 짧은 문서, HTML shell, 대용량/뉴스레터 PDF를 벡터 후보에서 제외합니다.
+- processing filter policy: 중복 raw sha256, 중복 문서 텍스트, 중복 chunk, 너무 짧은 문서, HTML shell, sheet 원본 전체 문서, SPA bundle text, 대용량/뉴스레터 PDF를 벡터 후보에서 제외합니다.
 - KAIST 본원 사이트는 HTML 범위를 입학·교육 페이지 중심으로 좁혀, 학과 RAG와 관련성이 낮은 일반 홍보/캠퍼스/뉴스 페이지가 벡터 품질을 낮추지 않게 합니다.
 
 ## 변경 기록
@@ -204,7 +204,7 @@ python -c "from pathlib import Path; print(Path('README.md').read_text(encoding=
 ## 검증 명령
 
 ```powershell
-python -m py_compile kaist_crawler\__main__.py kaist_crawler\__init__.py kaist_crawler\models.py kaist_crawler\config.py kaist_crawler\http_client.py kaist_crawler\store.py kaist_crawler\extractors.py kaist_crawler\rendering.py kaist_crawler\policies.py kaist_crawler\processor.py kaist_crawler\vector_store.py kaist_crawler\adapters.py kaist_crawler\pipeline.py kaist_crawler\cli.py tests\test_config.py tests\test_policies.py
+python -m py_compile kaist_crawler\__main__.py kaist_crawler\__init__.py kaist_crawler\models.py kaist_crawler\config.py kaist_crawler\http_client.py kaist_crawler\store.py kaist_crawler\extractors.py kaist_crawler\rendering.py kaist_crawler\policies.py kaist_crawler\processor.py kaist_crawler\vector_store.py kaist_crawler\adapters.py kaist_crawler\pipeline.py kaist_crawler\cli.py tests\test_config.py tests\test_policies.py tests\test_sheet_mapping.py
 python -m unittest discover -s tests
 python -m kaist_crawler process --config configs\kaist_ai_sources.yml --output data --clean
 ```

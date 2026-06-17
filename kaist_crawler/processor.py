@@ -3,19 +3,20 @@ from __future__ import annotations
 import json
 from collections import defaultdict
 from pathlib import Path
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urlparse
 
 from .extractors import (
     chunk_documents,
-    html_to_text,
+    html_to_sections,
     js_literal_text,
     parse_gviz,
     pdf_to_text,
     sheet_rows_to_text,
-    slugify,
 )
 from .models import Chunk, Document, RawRecord, SourceConfig
 from .policies import ProcessingFilterPolicy, filter_chunks, filter_documents, filter_event
+from .rag_metadata import infer_section_title, normalize_rag_metadata
+from .sheet_mapping import sheet_row_documents
 from .store import safe_filename, stable_id
 
 
@@ -176,17 +177,22 @@ def process_html_record(
     document_type = html_document_type(source, metadata)
     if document_type is None:
         return
-    title, text = html_to_text(read_text(raw_path))
-    metadata["document_type"] = document_type
-    add_document(
-        documents,
-        site=record.site,
-        source_url=record.canonical_url,
-        title=title or source.name,
-        text=text,
-        raw_path=str(raw_path.as_posix()),
-        metadata=metadata,
-    )
+    title, sections = html_to_sections(read_text(raw_path))
+    for section_index, section in enumerate(sections):
+        section_metadata = dict(metadata)
+        section_metadata["document_type"] = document_type
+        section_metadata["section_index"] = section_index
+        if section.title:
+            section_metadata["section"] = section.title
+        add_document(
+            documents,
+            site=record.site,
+            source_url=record.canonical_url,
+            title=section.title or title or source.name,
+            text=section.text,
+            raw_path=str(raw_path.as_posix()),
+            metadata=section_metadata,
+        )
 
 
 def html_document_type(source: SourceConfig, metadata: dict) -> str | None:
@@ -218,12 +224,7 @@ def process_sheet_record(
             raw_path=str(raw_path.as_posix()),
             metadata={"document_type": "google_sheet", "sheet": sheet_name},
         )
-    if source.adapter != "vite_react_spa_with_google_sheets":
-        return
-    if sheet_name == "news":
-        add_news_documents(documents, source=source, record=record, raw_path=raw_path, rows=rows)
-    elif sheet_name == "faculty":
-        add_faculty_documents(documents, source=source, record=record, raw_path=raw_path, rows=rows)
+    add_sheet_row_documents(documents, source=source, record=record, raw_path=raw_path, sheet_name=sheet_name, rows=rows)
 
 
 def process_pdf_record(
@@ -235,20 +236,28 @@ def process_pdf_record(
     raw_path: Path,
 ) -> None:
     pdf_result = pdf_to_text(raw_path)
+    file_name = safe_filename(urlparse(record.canonical_url).path, "pdf")
     if pdf_result.text:
-        add_document(
-            documents,
-            site=record.site,
-            source_url=record.canonical_url,
-            title=safe_filename(urlparse(record.canonical_url).path, "pdf"),
-            text=pdf_result.text,
-            raw_path=str(raw_path.as_posix()),
-            metadata={
-                "document_type": "pdf",
-                "pdf_extractor": pdf_result.extractor,
-                "pdf_pages": pdf_result.pages,
-            },
-        )
+        page_texts = pdf_result.page_texts or (pdf_result.text,)
+        for page_index, page_text in enumerate(page_texts, start=1):
+            if not page_text.strip():
+                continue
+            add_document(
+                documents,
+                site=record.site,
+                source_url=record.canonical_url,
+                title=file_name,
+                text=page_text,
+                raw_path=str(raw_path.as_posix()),
+                metadata={
+                    "document_type": "pdf",
+                    "pdf_extractor": pdf_result.extractor,
+                    "pdf_pages": pdf_result.pages,
+                    "page": page_index,
+                    "section": infer_section_title(page_text, fallback=file_name),
+                    "file_name": file_name,
+                },
+            )
     elif pdf_result.error:
         errors.append(
             processing_error(
@@ -260,62 +269,30 @@ def process_pdf_record(
         )
 
 
-def add_news_documents(
+def add_sheet_row_documents(
     documents: list[Document],
     *,
     source: SourceConfig,
     record: RawRecord,
     raw_path: Path,
+    sheet_name: str,
     rows: list[dict[str, str]],
 ) -> None:
-    for row in rows:
-        slug = row.get("slug", "").strip()
-        if not slug:
-            continue
-        title = row.get("title_ko") or row.get("title_en") or slug
-        body = "\n\n".join(
-            part
-            for part in [
-                row.get("title_ko", ""),
-                row.get("title_en", ""),
-                row.get("body_ko", ""),
-                row.get("body_en", ""),
-            ]
-            if part
-        )
+    for document in sheet_row_documents(
+        source=source,
+        record=record,
+        raw_path=raw_path,
+        sheet_name=sheet_name,
+        rows=rows,
+    ):
         add_document(
             documents,
             site=record.site,
-            source_url=urljoin(source.base_url, f"/news/{slug}"),
-            title=title,
-            text=body,
-            raw_path=str(raw_path.as_posix()),
-            metadata={"document_type": "news", "slug": slug, "category": row.get("category", "")},
-        )
-
-
-def add_faculty_documents(
-    documents: list[Document],
-    *,
-    source: SourceConfig,
-    record: RawRecord,
-    raw_path: Path,
-    rows: list[dict[str, str]],
-) -> None:
-    for row in rows:
-        name = row.get("name_ko") or row.get("name_en")
-        if not name:
-            continue
-        slug = slugify(row.get("name_en") or name)
-        text = "\n".join(f"{key}: {value}" for key, value in row.items() if value)
-        add_document(
-            documents,
-            site=record.site,
-            source_url=urljoin(source.base_url, f"/faculty-card/{slug}"),
-            title=name,
-            text=text,
-            raw_path=str(raw_path.as_posix()),
-            metadata={"document_type": "faculty", "slug": slug},
+            source_url=document.source_url,
+            title=document.title,
+            text=document.text,
+            raw_path=document.raw_path,
+            metadata=document.metadata,
         )
 
 
@@ -332,6 +309,13 @@ def add_document(
     text = text.strip()
     if not text:
         return
+    metadata = normalize_rag_metadata(
+        site=site,
+        source_url=source_url,
+        title=title,
+        text=text,
+        metadata=metadata,
+    )
     doc_id = f"{site}:{stable_id(source_url, title, raw_path or '', text[:200])}"
     documents.append(
         Document(

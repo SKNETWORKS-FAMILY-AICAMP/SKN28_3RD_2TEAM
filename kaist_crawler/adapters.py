@@ -393,7 +393,7 @@ class FxSheetsSpaAdapter(ViteReactSpaAdapter):
     def crawl(self) -> None:
         super().crawl()
         rows_by_sheet = self._fetch_sheets()
-        self._download_news_files(rows_by_sheet.get("news", []))
+        self._download_sheet_files(rows_by_sheet)
         self._fetch_dynamic_routes(rows_by_sheet)
 
     def _fetch_sheets(self) -> dict[str, list[dict[str, str]]]:
@@ -424,37 +424,67 @@ class FxSheetsSpaAdapter(ViteReactSpaAdapter):
             rows_by_sheet[sheet_name] = rows
         return rows_by_sheet
 
-    def _download_news_files(self, rows: list[dict[str, str]]) -> None:
-        for row in rows:
-            body = "\n\n".join(
-                part
-                for part in [
-                    row.get("title_ko", ""),
-                    row.get("title_en", ""),
-                    row.get("body_ko", ""),
-                    row.get("body_en", ""),
-                ]
-                if part
-            )
-            for file_ref in extract_file_refs(body):
-                self.download_file(file_ref)
+    def _download_sheet_files(self, rows_by_sheet: dict[str, list[dict[str, str]]]) -> None:
+        for rows in rows_by_sheet.values():
+            for row in rows:
+                for value in row.values():
+                    for file_ref in extract_file_refs(value):
+                        self.download_file(file_ref)
 
     def _fetch_dynamic_routes(self, rows_by_sheet: dict[str, list[dict[str, str]]]) -> None:
         routes = []
-        for row in rows_by_sheet.get("news", []):
-            slug = row.get("slug", "").strip()
-            if slug:
-                routes.append(f"/news/{slug}")
-        for row in rows_by_sheet.get("faculty", []):
-            name = row.get("name_en") or row.get("name_ko")
-            if name:
-                routes.append(f"/faculty-card/{slugify(name)}")
+        for route_config in self.source.dynamic_routes.values():
+            if not isinstance(route_config, dict):
+                continue
+            pattern = route_config.get("pattern")
+            source_ref = route_config.get("source")
+            parsed_source = parse_google_sheet_source(source_ref)
+            if not isinstance(pattern, str) or parsed_source is None:
+                continue
+            sheet_name, field_name = parsed_source
+            for row in rows_by_sheet.get(sheet_name, []):
+                value = sheet_route_value(row, field_name)
+                if value:
+                    routes.append(fill_route_pattern(pattern, value))
         self._collect_routes(routes, stage="fetch_dynamic_route")
 
 
 def route_to_filename(route: str) -> str:
     route = route.strip("/") or "index"
     return re.sub(r"[^A-Za-z0-9_.-]+", "_", route).strip("._") or "route"
+
+
+def parse_google_sheet_source(source_ref: object) -> tuple[str, str] | None:
+    if not isinstance(source_ref, str) or not source_ref.startswith("google_sheet:"):
+        return None
+    sheet_field = source_ref.removeprefix("google_sheet:")
+    if "." not in sheet_field:
+        return None
+    sheet_name, field_name = sheet_field.split(".", 1)
+    if not sheet_name or not field_name:
+        return None
+    return sheet_name, field_name
+
+
+def sheet_route_value(row: dict[str, str], field_name: str) -> str:
+    value = row.get(field_name, "").strip()
+    if value:
+        return value
+    if field_name.endswith("_slug"):
+        base_value = row.get(field_name.removesuffix("_slug"), "").strip()
+        if base_value:
+            return slugify(base_value)
+    return ""
+
+
+def fill_route_pattern(pattern: str, value: str) -> str:
+    placeholders = re.findall(r"{([^{}]+)}", pattern)
+    if not placeholders:
+        return pattern
+    route = pattern
+    for placeholder in placeholders:
+        route = route.replace(f"{{{placeholder}}}", value)
+    return route
 
 
 def create_adapter(

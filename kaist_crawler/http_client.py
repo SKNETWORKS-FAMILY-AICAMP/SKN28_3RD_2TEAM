@@ -44,7 +44,7 @@ class HttpClient:
         self.session.headers.update(
             {
                 "User-Agent": user_agent
-                or "Mozilla/5.0 (compatible; KAIST-AI-RAG-Crawler/0.1; +local-research)",
+                or "Mozilla/5.0 (compatible; Graduate-RAG-Crawler/0.1; +local-research)",
                 "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
             }
         )

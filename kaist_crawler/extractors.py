@@ -7,9 +7,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
 
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, Tag
 
 from .models import Chunk, Document
+from .rag_metadata import normalize_rag_metadata
 from .store import stable_id
 
 
@@ -30,18 +31,78 @@ class PdfTextResult:
     text: str
     extractor: str
     pages: int
+    page_texts: tuple[str, ...] = ()
     error: str = ""
 
 
+@dataclass(frozen=True)
+class HtmlSection:
+    title: str
+    text: str
+
+
 def html_to_text(content: str) -> tuple[str, str]:
+    title, sections = html_to_sections(content)
+    text = "\n\n".join(section.text for section in sections)
+    return title, normalize_text(text)
+
+
+def html_to_sections(content: str) -> tuple[str, list[HtmlSection]]:
     soup = BeautifulSoup(content, "html.parser")
     title = " ".join(soup.title.stripped_strings) if soup.title else ""
-    for tag in soup(["script", "style", "noscript", "svg"]):
+    for tag in soup(["script", "style", "noscript", "svg", "nav", "footer"]):
         tag.decompose()
     main = soup.find("main") or soup.find("article") or soup.body or soup
-    text = main.get_text("\n", strip=True)
-    text = normalize_text(text)
-    return title, text
+    text = normalize_text(main.get_text("\n", strip=True))
+    headings = heading_lines(main)
+    sections = split_text_by_headings(text, headings)
+    if not sections:
+        sections = [HtmlSection(title=title, text=text)]
+    return title, sections
+
+
+def heading_lines(root: Tag | BeautifulSoup) -> list[str]:
+    headings: list[str] = []
+    for tag in root.find_all(["h1", "h2", "h3", "h4"]):
+        value = normalize_text(tag.get_text(" ", strip=True))
+        if value and value not in headings:
+            headings.append(value)
+    return headings
+
+
+def split_text_by_headings(text: str, headings: list[str]) -> list[HtmlSection]:
+    if not text:
+        return []
+    if not headings:
+        return [HtmlSection(title="", text=text)]
+
+    heading_set = set(headings)
+    sections: list[HtmlSection] = []
+    current_title = ""
+    current_lines: list[str] = []
+
+    for line in text.splitlines():
+        if line in heading_set:
+            if current_lines:
+                sections.append(
+                    HtmlSection(
+                        title=current_title,
+                        text=normalize_text("\n".join(current_lines)),
+                    )
+                )
+            current_title = line
+            current_lines = [line]
+            continue
+        current_lines.append(line)
+
+    if current_lines:
+        sections.append(
+            HtmlSection(
+                title=current_title,
+                text=normalize_text("\n".join(current_lines)),
+            )
+        )
+    return [section for section in sections if section.text]
 
 
 def normalize_text(text: str) -> str:
@@ -168,7 +229,7 @@ def pdf_to_text(path: str | Path) -> PdfTextResult:
     )
     for extractor_name, extractor in extractors:
         try:
-            text, pages = extractor(path)
+            page_texts, pages = extractor(path)
         except ImportError:
             errors.append(f"{extractor_name} is not installed")
             continue
@@ -176,34 +237,36 @@ def pdf_to_text(path: str | Path) -> PdfTextResult:
             errors.append(f"{extractor_name} failed: {type(exc).__name__}: {exc}")
             continue
 
+        normalized_pages = tuple(normalize_text(page_text) for page_text in page_texts)
+        text = "\n\n".join(page_text for page_text in normalized_pages if page_text)
         text = normalize_text(text)
         if text:
-            return PdfTextResult(text=text, extractor=extractor_name, pages=pages)
+            return PdfTextResult(text=text, extractor=extractor_name, pages=pages, page_texts=normalized_pages)
         errors.append(f"{extractor_name} extracted no text")
 
     return PdfTextResult(text="", extractor="", pages=0, error="; ".join(errors))
 
 
-def _extract_pdf_with_pymupdf(path: Path) -> tuple[str, int]:
+def _extract_pdf_with_pymupdf(path: Path) -> tuple[list[str], int]:
     import fitz  # type: ignore
 
     document = fitz.open(str(path))
     try:
         parts = [page.get_text("text") or "" for page in document]
-        return "\n".join(parts), document.page_count
+        return parts, document.page_count
     finally:
         document.close()
 
 
-def _extract_pdf_with_pdfplumber(path: Path) -> tuple[str, int]:
+def _extract_pdf_with_pdfplumber(path: Path) -> tuple[list[str], int]:
     import pdfplumber  # type: ignore
 
     with pdfplumber.open(str(path)) as pdf:
         parts = [page.extract_text() or "" for page in pdf.pages]
-        return "\n".join(parts), len(pdf.pages)
+        return parts, len(pdf.pages)
 
 
-def _extract_pdf_with_pypdf(path: Path) -> tuple[str, int]:
+def _extract_pdf_with_pypdf(path: Path) -> tuple[list[str], int]:
     try:
         from pypdf import PdfReader  # type: ignore
     except ImportError:
@@ -212,17 +275,17 @@ def _extract_pdf_with_pypdf(path: Path) -> tuple[str, int]:
     parts = []
     for page in reader.pages:
         parts.append(page.extract_text() or "")
-    return "\n".join(parts), len(reader.pages)
+    return parts, len(reader.pages)
 
 
-def _extract_pdf_with_pypdf2(path: Path) -> tuple[str, int]:
+def _extract_pdf_with_pypdf2(path: Path) -> tuple[list[str], int]:
     from PyPDF2 import PdfReader  # type: ignore
 
     reader = PdfReader(str(path))
     parts = []
     for page in reader.pages:
         parts.append(page.extract_text() or "")
-    return "\n".join(parts), len(reader.pages)
+    return parts, len(reader.pages)
 
 
 def chunk_documents(
@@ -253,6 +316,14 @@ def chunk_documents(
                         "title": document.title,
                         "raw_path": document.raw_path or "",
                     }
+                )
+                metadata.pop("content_type", None)
+                metadata = normalize_rag_metadata(
+                    site=document.site,
+                    source_url=document.source_url,
+                    title=document.title,
+                    text=chunk_text,
+                    metadata=metadata,
                 )
                 chunks.append(
                     Chunk(

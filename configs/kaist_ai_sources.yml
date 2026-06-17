@@ -28,7 +28,6 @@ defaults:
       max_file_size_mb: 30
       exclude_url_patterns:
         - '(?i)newsletter'
-        - '(?i)kaistian'
         - '(?i)magazine'
         - '(?i)annual'
         - '(?i)report'
@@ -49,13 +48,14 @@ defaults:
         google_sheet: 80
         news: 100
         faculty: 50
-        pdf: 300
+        pdf: 80
       exclude_document_types:
         - html_shell
+        - google_sheet
+        - spa_bundle_text
       max_pdf_size_mb: 30
       exclude_pdf_url_patterns:
         - '(?i)newsletter'
-        - '(?i)kaistian'
         - '(?i)magazine'
         - '(?i)annual'
         - '(?i)report'
@@ -174,6 +174,31 @@ sources:
         - news
         - faculty
       gviz_url_template: "https://docs.google.com/spreadsheets/d/{spreadsheet_id}/gviz/tq?tqx=out:json&headers=1&sheet={sheet}"
+      document_mappings:
+        news:
+          document_type: news
+          route_template: /news/{slug}
+          slug_field: slug
+          title_fields:
+            - title_ko
+            - title_en
+            - slug
+          text_fields:
+            - title_ko
+            - title_en
+            - body_ko
+            - body_en
+          metadata_fields:
+            - category
+        faculty:
+          document_type: faculty
+          route_template: /faculty-card/{slug}
+          slug_field: name_en
+          slugify_slug: true
+          title_fields:
+            - name_ko
+            - name_en
+          text_fields: "*"
     raw:
       render_routes: true
       render_timeout_ms: 10000

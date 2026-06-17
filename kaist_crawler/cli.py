@@ -40,7 +40,7 @@ def add_embedding_args(parser: argparse.ArgumentParser) -> None:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="KAIST College of AI crawler")
+    parser = argparse.ArgumentParser(description="Graduate school RAG crawler")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     run = subparsers.add_parser("run", help="collect raw data, extract text, chunk, and build vectors")

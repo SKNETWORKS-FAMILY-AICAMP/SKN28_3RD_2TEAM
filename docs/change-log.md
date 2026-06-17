@@ -15,6 +15,141 @@
 ## 2026-06-17
 
 ### 변경
+- Google Sheets row 매핑 로직을 `kaist_crawler/processor.py`에서 `kaist_crawler/sheet_mapping.py`로 분리했다.
+- `processor.py`의 기존 `add_sheet_row_documents` 함수는 유지하되, 내부에서 새 `sheet_row_documents` 변환 함수를 호출하도록 바꿨다.
+
+### 이유
+- `processor.py`가 raw manifest 순회, HTML/PDF 처리, sheet row 매핑까지 모두 담당하고 있어 다른 대학원 사이트의 sheet/API 구조를 추가할 때 수정 범위가 커질 수 있었다.
+- sheet row 매핑을 독립 모듈로 분리하면 Google Sheets, Airtable, JSON API 같은 정형 데이터 매핑 규칙을 processor와 분리해서 테스트하고 확장할 수 있다.
+- 기존 함수명은 유지해서 현재 테스트와 호출부가 바로 깨지지 않게 했다.
+
+### 검증
+```powershell
+python -m py_compile kaist_crawler\processor.py kaist_crawler\sheet_mapping.py tests\test_sheet_mapping.py
+python -m unittest tests.test_sheet_mapping
+python -m unittest discover -s tests
+python -m kaist_crawler process --config configs\kaist_ai_sources.yml --output data --clean
+```
+
+결과:
+
+```text
+test_sheet_mapping=5 OK
+tests=21 OK
+documents=134 chunks=185 errors=0 filtered=911
+```
+
+### 변경
+- RAG용 metadata 정규화 모듈 `kaist_crawler/rag_metadata.py`를 추가했다.
+- 모든 전처리 문서/chunk에 `dept`, `dept_name`, `content_type`, `source_type`, `section`, `page` metadata가 들어가도록 보강했다.
+- HTML은 heading 기반 section 단위로 분리하고, PDF는 page 단위로 텍스트를 보존하도록 변경했다.
+- PDF page 기반 전처리에서 짧지만 중요한 슬라이드가 과도하게 제거되지 않도록 `pdf` 최소 길이 기준을 `300`자에서 `80`자로 낮췄다.
+- `faculty`, `news`, `html`, `pdf`를 RAG 검색 의도에 맞춰 `person`, `admission`, `event`, `course`, `scholarship`, `department_profile` 등으로 재분류하도록 했다.
+- Chroma 검색에서 질문 기반 metadata filter를 먼저 적용하고, 결과가 부족하면 `department_only`, `content_type_only`, `no_filter`로 fallback하는 `kaist_crawler/retrieval.py`를 추가했다.
+- `scripts/retrieval_smoke_test.py`가 기본적으로 metadata filter 검색을 사용하도록 바꿨고, `--no-metadata-filter` 옵션을 추가했다.
+- OpenAI embedding 빌드 시 `.env`의 `OPENAI_API_KEY`, `OPENAI_BASE_URL`, `OPENAI_EMBEDDING_MODEL`을 자동 로드하도록 보강했다.
+- `tests/test_rag_metadata.py`를 추가해 metadata 정규화, section chunking, retrieval filter plan을 검증했다.
+
+### 이유
+- 기존 chunk는 `html/pdf/news/faculty` 중심이라 질문 의도인 입학, 교수진, 교과목, 장학금, 행사와 직접 연결되지 않았다.
+- retrieval 테스트에서 관련 문서가 있어도 다른 학과나 KAIST 공통 페이지가 먼저 올라오는 문제가 있었으므로, 전처리 metadata와 Chroma filter 검색을 함께 개선했다.
+- PDF를 page 단위로 나누면 출처 page를 보존할 수 있지만, 300자 기준에서는 핵심 슬라이드가 사라져 AX 입시설명회 검색 품질이 낮아졌다.
+
+### 실행
+```powershell
+python -m unittest discover -s tests
+python -m kaist_crawler process --config configs\kaist_ai_sources.yml --output data --clean
+python -m kaist_crawler build-vector --input data\processed\chunks.jsonl --output data --embedding-provider openai
+python scripts\retrieval_smoke_test.py --top-k 5
+```
+
+결과:
+
+```text
+tests=20 OK
+documents=134
+chunks=185
+errors=0
+filtered=911
+Chroma collection=graduate_rag_openai_text-embedding-3-small_1536
+Chroma count=185
+```
+
+chunk `content_type` 분포:
+
+```text
+admission=68
+person=47
+event=33
+scholarship=12
+course=10
+department_profile=10
+general=3
+office_contact=2
+```
+
+chunk `dept` 분포:
+
+```text
+fx=50
+kaist=44
+aic=40
+ai_systems=33
+ax=18
+```
+
+### 평가
+- `AI미래학과 교수진은?`은 `dept=fx`, `content_type=person` strict filter로 FX faculty 문서만 반환한다.
+- `AX 학과 입시설명회 내용 요약해줘`는 `dept=ax`, `content_type=admission` strict filter로 AX 입시설명회 PDF page가 top 결과에 나온다.
+- `KAIST 대학원 장학금이나 등록 관련 정보는?`은 `content_type=scholarship` filter로 KAIST 등록/장학 페이지를 우선 검색한다.
+- KAIST 본원 공통 내비게이션에 포함된 AI 학과명이 본원 문서를 특정 학과로 오분류하던 문제를 막기 위해 `kaist_main_kr`은 기본 `dept=kaist`로 고정했다.
+
+### 남은 이슈
+- AI College SPA는 여전히 실제 rendered content 수집이 부족해 `AI College 교육과정` 질문이 AIC PDF 중심으로 검색된다.
+- `AI Systems 대학원 입학 지원 조건`은 strict filter는 잘 작동하지만, PDF/HTML 중 대학원 지원 조건 page를 더 위로 올리려면 다음 단계에서 reranker가 필요하다.
+- KAIST 본원 HTML에는 아직 공통 내비게이션 boilerplate가 일부 남아 있어 본문 정제 개선 여지가 있다.
+
+## 2026-06-17
+
+### 변경
+- 대표 질문으로 Chroma retrieval 품질을 확인하는 `scripts/retrieval_smoke_test.py`를 추가했다.
+- 스크립트를 직접 실행해도 로컬 `kaist_crawler` 패키지를 import할 수 있도록 프로젝트 루트를 `sys.path`에 추가했다.
+
+### 이유
+- 벡터스토어 생성 여부만으로는 RAG 품질을 판단할 수 없어서, 실제 사용자가 물어볼 만한 질문으로 top-k 검색 결과를 점검할 필요가 있다.
+- PowerShell here-string으로 한국어 질의를 넘기면 터미널 인코딩에 따라 질의가 깨질 수 있으므로, UTF-8 소스 파일 안에 대표 질문을 고정해 재현 가능한 smoke test로 만들었다.
+
+### 실행
+```powershell
+python scripts\retrieval_smoke_test.py --top-k 5
+```
+
+결과:
+
+```text
+collection=graduate_rag_openai_text-embedding-3-small_1536
+count=147
+embedding_provider=openai
+embedding_model=text-embedding-3-small
+embedding_dimensions=1536
+```
+
+### 평가
+- AI Systems 입학 질문은 관련 PDF와 입학 안내 HTML이 top-2로 검색되어 품질이 좋다.
+- KAIST 장학금/등록 질문은 KAIST 등록 FAQ와 장학 정책 문서가 top-2로 검색되어 품질이 좋지만, 일부 KAIST 공통 내비게이션 텍스트가 섞인다.
+- AX 입시설명회 질문은 AX PDF가 검색되지만 top-4로 밀려나고 FX/AI Systems의 통합 입시설명회 문서가 먼저 나온다. 학과명 기반 site boost 또는 metadata filter가 필요하다.
+- AI미래학과 교수진 질문은 FX faculty 문서가 검색되지만 top-3부터 나오고 KAIST 공통 학사 페이지가 앞에 나온다. document_type=faculty 또는 site=kaist_fx boost가 필요하다.
+- AI College 학과/교육과정 질문은 정확한 AI College 문서가 부족하고 KAIST 공통 페이지가 먼저 나온다. AI College SPA rendered HTML 수집 또는 안전한 bundle text 정제가 필요하다.
+- 학과명을 더 명시한 추가 질의에서는 AIC/AX/FX 관련 문서가 검색 결과에 들어오므로, 데이터 부재보다는 현재 retrieval 단계의 site/document_type routing 부족이 더 큰 문제로 보인다.
+
+### 다음 작업 후보
+- 질의에 학과/사이트명이 들어오면 해당 `site`와 `document_type`을 boost/filter하는 retrieval policy를 추가한다.
+- KAIST 본원 HTML의 공통 내비게이션/학과 목록 boilerplate 제거를 강화한다.
+- AI College rendered HTML 수집 실패 문제를 해결하거나, bundle text에서 라우트별 실제 콘텐츠만 추출하는 fallback을 만든다.
+
+## 2026-06-17
+
+### 변경
 
 - `docs/change-log.md`를 새로 추가했다.
 - 지금까지 만든 크롤링, 전처리, 벡터 저장, 리팩토링 변경 사항을 한곳에 기록하기 시작했다.
@@ -27,6 +162,113 @@
 ### 검증
 
 - 문서 추가 작업이므로 별도 코드 실행은 하지 않았다.
+
+## 2026-06-17
+
+### 변경
+
+- 전처리된 `data/processed/chunks.jsonl` 147개 chunk로 OpenAI embedding 기반 Chroma vector store를 생성했다.
+- `.env`의 `OPENAI_EMBEDDING_MODEL` 설정에 따라 `text-embedding-3-small` 모델이 사용됐다.
+
+### 실행
+
+```powershell
+python -m kaist_crawler build-vector --input data\processed\chunks.jsonl --output data --embedding-provider openai
+```
+
+결과:
+
+```text
+chunks=147
+vector_output=C:\Users\Playdata\workspace\kaist_ai_crawler_project\data\vector
+```
+
+### 검증
+
+```text
+data/vector/simple/chunks.jsonl: 147 lines
+data/vector/chroma: exists
+Chroma collection: graduate_rag_openai_text-embedding-3-small_1536
+Collection count: 147
+```
+
+### 메모
+
+- 첫 실행은 네트워크 제한 때문에 실패했고, 승인된 네트워크 실행으로 OpenAI embedding API 호출에 성공했다.
+- 다음 단계는 대표 질문으로 Chroma 검색 smoke test를 수행해 retrieval 품질을 확인하는 것이다.
+
+## 2026-06-17
+
+### 변경
+
+- 기능적으로 KAIST/FX 사이트 구조에 묶여 있던 하드코딩을 설정 기반으로 일반화했다.
+- `FxSheetsSpaAdapter`의 dynamic route 생성을 `source.dynamic_routes` 설정 기반으로 변경했다.
+- sheet row에서 첨부 파일 링크를 찾는 로직을 `news` sheet 전용에서 모든 sheet row 값 스캔 방식으로 변경했다.
+- `processor.py`의 `news`/`faculty` 전용 row 문서 생성 로직을 `google_sheets.document_mappings` 기반으로 변경했다.
+- FX의 기존 `news`, `faculty` row 문서 생성 규칙을 `configs/kaist_ai_sources.yml`로 이동했다.
+- 기본 전처리 필터에서 `google_sheet`, `spa_bundle_text` 문서를 vector 후보에서 제외하도록 했다.
+- 기본 file policy에서 KAIST 전용 `kaistian` 패턴을 제거했다.
+- 기본 Chroma collection prefix를 `kaist_ai`에서 `graduate_rag`로 변경했다.
+- 기본 User-Agent를 `KAIST-AI-RAG-Crawler`에서 `Graduate-RAG-Crawler`로 변경했다.
+- CLI description을 `Graduate school RAG crawler`로 일반화했다.
+- `tests/test_sheet_mapping.py`를 추가했다.
+
+### 이유
+
+- 변수명이나 파일명은 KAIST 중심이어도 되지만, 기능이 특정 사이트의 `news/faculty` schema에 묶이면 다른 대학원 사이트를 추가할 때 RAG 품질이 흔들린다.
+- Google Sheets, Airtable, JSON API 같은 구조화 데이터는 학교마다 field 이름이 다르므로 row mapping을 YAML 설정으로 옮기는 편이 안전하다.
+- SPA bundle text와 sheet 원본 전체 문서는 다른 사이트에서도 중복/노이즈가 될 가능성이 높아 기본 vector 후보에서 제외했다.
+
+### 영향 파일
+
+- `kaist_crawler/adapters.py`
+- `kaist_crawler/processor.py`
+- `kaist_crawler/vector_store.py`
+- `kaist_crawler/http_client.py`
+- `kaist_crawler/cli.py`
+- `configs/kaist_ai_sources.yml`
+- `tests/test_sheet_mapping.py`
+- `README.md`
+- `docs/kaist-crawling-strategy.md`
+
+### 검증
+
+```powershell
+python -m py_compile kaist_crawler\__main__.py kaist_crawler\__init__.py kaist_crawler\models.py kaist_crawler\config.py kaist_crawler\http_client.py kaist_crawler\store.py kaist_crawler\extractors.py kaist_crawler\rendering.py kaist_crawler\policies.py kaist_crawler\processor.py kaist_crawler\vector_store.py kaist_crawler\adapters.py kaist_crawler\pipeline.py kaist_crawler\cli.py tests\test_config.py tests\test_policies.py tests\test_sheet_mapping.py
+python -m unittest discover -s tests
+python -m kaist_crawler process --config configs\kaist_ai_sources.yml --output data --clean
+```
+
+결과:
+
+```text
+14 tests OK
+documents=49 chunks=147 errors=0 filtered=139
+```
+
+문서 타입:
+
+```text
+pdf=4
+html=13
+news=9
+faculty=23
+```
+
+chunk 타입:
+
+```text
+pdf=40
+html=57
+news=20
+faculty=30
+```
+
+### 평가
+
+- 이전 전처리 결과의 주요 노이즈였던 `google_sheet` 전체 문서와 `spa_bundle_text`가 vector 후보에서 제외됐다.
+- chunk 수가 `289`에서 `147`로 줄었고, 남은 chunk는 PDF/HTML/news/faculty 중심이 됐다.
+- 다른 사이트에서는 `google_sheets.document_mappings`만 추가하면 코드 수정 없이 sheet row 문서를 만들 수 있다.
 
 ## 2026-06-17
 
@@ -282,22 +524,9 @@ python -m kaist_crawler build-vector
 
 ## 현재 남은 구조적 이슈
 
-### FX 전용 하드코딩
-
-- `FxSheetsSpaAdapter`는 `news`, `faculty`, `/news/{slug}`, `/faculty-card/{slug}`를 코드에 직접 사용한다.
-- `processor.py`도 `title_ko`, `title_en`, `body_ko`, `body_en`, `name_ko`, `name_en`을 고정 사용한다.
-- 다른 대학원 사이트의 sheet/API 구조로 확장하려면 설정 기반 row mapping이 필요하다.
-
 ### 설정과 구현 불일치
 
-- `dynamic_routes`와 `route_aliases` 설정은 일부 존재하지만 아직 일반화된 방식으로 충분히 사용되지 않는다.
-
-### KAIST 전용 기본값
-
-- 기본 file policy에 `kaistian` 패턴이 들어 있다.
-- `vector_store.py`의 기본 collection 이름 prefix가 `kaist_ai`다.
-- HTTP User-Agent가 `KAIST-AI-RAG-Crawler`다.
-- CLI description이 `KAIST College of AI crawler`다.
+- `dynamic_routes`는 Google Sheets 기반 route 생성에 사용되지만, `route_aliases` 설정은 아직 실제 수집/전처리 로직에 사용되지 않는다.
 
 ### SPA 렌더링 환경 문제
 
@@ -307,17 +536,12 @@ python -m kaist_crawler build-vector
 ## 다음 작업 후보
 
 1. 전처리 개선
-   - `google_sheet` 전체 문서 제외
-   - `spa_bundle_text` 기본 제외 또는 강한 정제
    - 문서 타입별 chunk 전략 분리
    - `rag_category` metadata 추가
 
-2. FX 전용 처리 일반화
-   - sheet/API row mapping을 YAML 설정으로 이동
-   - dynamic route 생성을 설정 기반으로 변경
-
-3. 벡터 저장
+2. 벡터 저장
    - 전처리 개선 후 OpenAI embedding으로 Chroma vector store 생성
 
-4. 확장 준비
-   - `kaistian`, collection prefix, User-Agent, CLI description 일반화
+3. 확장 준비
+   - `route_aliases`를 실제 URL canonicalization 또는 metadata에 반영할지 결정
+   - 패키지명과 기본 config 이름을 장기적으로 일반화할지 결정

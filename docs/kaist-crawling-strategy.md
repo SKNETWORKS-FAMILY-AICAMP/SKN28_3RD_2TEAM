@@ -153,7 +153,7 @@ raw data는 가능한 원본에 가깝게 보존한다.
 현재 기본 정책은 `configs/kaist_ai_sources.yml`의 `defaults.raw.file_policy`에 둔다.
 
 - `max_file_size_mb`: 기본 30MB를 초과하는 파일은 다운로드하지 않는다.
-- `exclude_url_patterns`: newsletter, kaistian, magazine, annual, report, 소식지 패턴은 제외한다.
+- `exclude_url_patterns`: newsletter, magazine, annual, report, 소식지 패턴은 제외한다.
 - `include_url_patterns`: 특정 사이트에서 반드시 포함해야 하는 파일이 있으면 source별로 override한다.
 - `skip_unknown_size`: 서버가 `content-length`를 주지 않아도 기본적으로는 다운로드를 시도한다.
 
@@ -177,7 +177,9 @@ raw 수집 단계에서는 PDF 텍스트 추출, 강한 노이즈 제거, 정형
 - 텍스트가 너무 짧은 문서
 - SPA route HTML shell
 - 30MB 초과 PDF
-- newsletter, kaistian, magazine, annual, report, 소식지 패턴의 PDF
+- newsletter, magazine, annual, report, 소식지 패턴의 PDF
+- Google Sheets 같은 원본 테이블 전체 문서
+- SPA JavaScript bundle text
 - vendor 성격의 JavaScript asset
 
 KAIST 본원 사이트는 사이트 범위가 넓기 때문에 processed 단계에서 HTML 문서를 `/kr/html/admission/`, `/kr/html/edu/` 중심으로 제한한다. 본원 사이트의 일반 소개, 캠퍼스, 연구 홍보, 뉴스레터는 AI 대학원 RAG의 핵심 질문에 비해 노이즈가 될 가능성이 높기 때문이다.
@@ -215,7 +217,7 @@ python -m kaist_crawler run --config configs\kaist_ai_sources.yml --output data 
 문법 검사는 다음 명령으로 수행한다.
 
 ```powershell
-python -m py_compile kaist_crawler\__main__.py kaist_crawler\__init__.py kaist_crawler\models.py kaist_crawler\config.py kaist_crawler\http_client.py kaist_crawler\store.py kaist_crawler\extractors.py kaist_crawler\rendering.py kaist_crawler\policies.py kaist_crawler\processor.py kaist_crawler\vector_store.py kaist_crawler\adapters.py kaist_crawler\pipeline.py kaist_crawler\cli.py tests\test_config.py tests\test_policies.py
+python -m py_compile kaist_crawler\__main__.py kaist_crawler\__init__.py kaist_crawler\models.py kaist_crawler\config.py kaist_crawler\http_client.py kaist_crawler\store.py kaist_crawler\extractors.py kaist_crawler\rendering.py kaist_crawler\policies.py kaist_crawler\processor.py kaist_crawler\vector_store.py kaist_crawler\adapters.py kaist_crawler\pipeline.py kaist_crawler\cli.py tests\test_config.py tests\test_policies.py tests\test_sheet_mapping.py
 ```
 
 설정 검증과 필터 정책 테스트는 다음 명령으로 수행한다.
