@@ -79,6 +79,12 @@ python -m kaist_crawler build-vector --input data\processed\chunks.jsonl --outpu
 
 기본 OpenAI embedding 모델은 `text-embedding-3-large`입니다. 비용과 속도를 줄이려면 `--embedding-model text-embedding-3-small`을 사용할 수 있습니다.
 
+## 설정 검증
+
+`configs/kaist_ai_sources.yml`은 실행 시 검증됩니다. source id 중복, adapter 오타, `routes` 같은 주요 키 오타, 잘못된 타입은 실행 초기에 `ValueError`로 중단합니다.
+
+`defaults.request_timeout_seconds`는 HTTP 요청 timeout으로 적용되고, `defaults.polite_delay_seconds`는 연속 요청 사이의 기본 대기 시간으로 적용됩니다.
+
 ## 폴더 구조
 
 ```text
@@ -87,6 +93,7 @@ kaist_ai_crawler_project/
     kaist_ai_sources.yml
   docs/
     kaist-crawling-strategy.md
+    change-log.md
   kaist_crawler/
     __main__.py
     cli.py
@@ -153,6 +160,10 @@ data/
 - processing filter policy: 중복 raw sha256, 중복 문서 텍스트, 중복 chunk, 너무 짧은 문서, HTML shell, 대용량/뉴스레터 PDF를 벡터 후보에서 제외합니다.
 - KAIST 본원 사이트는 HTML 범위를 입학·교육 페이지 중심으로 좁혀, 학과 RAG와 관련성이 낮은 일반 홍보/캠퍼스/뉴스 페이지가 벡터 품질을 낮추지 않게 합니다.
 
+## 변경 기록
+
+구현, 리팩토링, 전처리 정책, 검증 결과는 `docs/change-log.md`에 날짜별로 기록합니다. 앞으로 코드나 설정을 변경할 때 이 문서도 함께 갱신합니다.
+
 ## PDF 정책
 
 PDF는 raw 단계에서 원본 파일만 저장합니다. 텍스트 추출은 `process` 또는 `run`의 processed 단계에서 수행합니다.
@@ -188,4 +199,12 @@ $OutputEncoding = [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new()
 
 ```powershell
 python -c "from pathlib import Path; print(Path('README.md').read_text(encoding='utf-8')[:200])"
+```
+
+## 검증 명령
+
+```powershell
+python -m py_compile kaist_crawler\__main__.py kaist_crawler\__init__.py kaist_crawler\models.py kaist_crawler\config.py kaist_crawler\http_client.py kaist_crawler\store.py kaist_crawler\extractors.py kaist_crawler\rendering.py kaist_crawler\policies.py kaist_crawler\processor.py kaist_crawler\vector_store.py kaist_crawler\adapters.py kaist_crawler\pipeline.py kaist_crawler\cli.py tests\test_config.py tests\test_policies.py
+python -m unittest discover -s tests
+python -m kaist_crawler process --config configs\kaist_ai_sources.yml --output data --clean
 ```

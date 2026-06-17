@@ -215,7 +215,13 @@ python -m kaist_crawler run --config configs\kaist_ai_sources.yml --output data 
 문법 검사는 다음 명령으로 수행한다.
 
 ```powershell
-python -m py_compile kaist_crawler\__main__.py kaist_crawler\__init__.py kaist_crawler\models.py kaist_crawler\config.py kaist_crawler\http_client.py kaist_crawler\store.py kaist_crawler\extractors.py kaist_crawler\rendering.py kaist_crawler\policies.py kaist_crawler\processor.py kaist_crawler\vector_store.py kaist_crawler\adapters.py kaist_crawler\pipeline.py kaist_crawler\cli.py
+python -m py_compile kaist_crawler\__main__.py kaist_crawler\__init__.py kaist_crawler\models.py kaist_crawler\config.py kaist_crawler\http_client.py kaist_crawler\store.py kaist_crawler\extractors.py kaist_crawler\rendering.py kaist_crawler\policies.py kaist_crawler\processor.py kaist_crawler\vector_store.py kaist_crawler\adapters.py kaist_crawler\pipeline.py kaist_crawler\cli.py tests\test_config.py tests\test_policies.py
+```
+
+설정 검증과 필터 정책 테스트는 다음 명령으로 수행한다.
+
+```powershell
+python -m unittest discover -s tests
 ```
 
 AX 기준 SPA 렌더링과 PDF 추출이 processed까지 들어가는지 확인하려면 다음 명령을 사용한다.

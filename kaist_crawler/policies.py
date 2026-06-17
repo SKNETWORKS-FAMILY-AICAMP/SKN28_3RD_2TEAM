@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from .models import Document, RawRecord
+from .models import Chunk, Document, RawRecord
 
 
 @dataclass(frozen=True)
@@ -166,6 +166,99 @@ class ProcessingFilterPolicy:
         if self.skip_duplicate_document_text and text_hash in seen_text_hashes:
             return PolicyDecision(skip=True, reason="duplicate_document_text", metadata={"text_hash": text_hash})
         return PolicyDecision(skip=False, metadata={"text_hash": text_hash})
+
+
+def filter_documents(
+    documents: list[Document],
+    policy_by_site: dict[str, ProcessingFilterPolicy],
+) -> tuple[list[Document], list[dict]]:
+    kept: list[Document] = []
+    filtered: list[dict] = []
+    seen_text_hashes: set[str] = set()
+
+    for document in documents:
+        policy = policy_by_site.get(document.site, ProcessingFilterPolicy())
+        decision = policy.evaluate_document(document=document, seen_text_hashes=seen_text_hashes)
+        if decision.skip:
+            filtered.append(
+                filter_event(
+                    stage="filter_document",
+                    reason=decision.reason,
+                    site=document.site,
+                    source_url=document.source_url,
+                    raw_path=document.raw_path,
+                    metadata={
+                        "doc_id": document.doc_id,
+                        "title": document.title,
+                        "document_type": document.metadata.get("document_type", ""),
+                        "text_chars": len(document.text),
+                        **(decision.metadata or {}),
+                    },
+                )
+            )
+            continue
+
+        text_hash = (decision.metadata or {}).get("text_hash") or normalized_text_hash(document.text)
+        seen_text_hashes.add(str(text_hash))
+        kept.append(document)
+
+    return kept, filtered
+
+
+def filter_chunks(
+    chunks: list[Chunk],
+    policy_by_site: dict[str, ProcessingFilterPolicy],
+) -> tuple[list[Chunk], list[dict]]:
+    kept: list[Chunk] = []
+    filtered: list[dict] = []
+    seen_chunk_hashes: set[str] = set()
+
+    for chunk in chunks:
+        policy = policy_by_site.get(chunk.site, ProcessingFilterPolicy())
+        text_hash = normalized_text_hash(chunk.text)
+        if policy.skip_duplicate_chunks and text_hash in seen_chunk_hashes:
+            filtered.append(
+                filter_event(
+                    stage="filter_chunk",
+                    reason="duplicate_chunk_text",
+                    site=chunk.site,
+                    source_url=chunk.source_url,
+                    raw_path=str(chunk.metadata.get("raw_path", "")),
+                    metadata={
+                        "chunk_id": chunk.chunk_id,
+                        "doc_id": chunk.doc_id,
+                        "chunk_index": chunk.chunk_index,
+                        "text_hash": text_hash,
+                    },
+                )
+            )
+            continue
+
+        seen_chunk_hashes.add(text_hash)
+        kept.append(chunk)
+
+    return kept, filtered
+
+
+def filter_event(
+    *,
+    stage: str,
+    reason: str,
+    site: str,
+    source_url: str,
+    raw_path: str | None,
+    metadata: dict | None = None,
+) -> dict:
+    event_metadata = dict(metadata or {})
+    if raw_path:
+        event_metadata.setdefault("raw_path", raw_path)
+    return {
+        "site": site,
+        "stage": stage,
+        "url": source_url,
+        "reason": reason,
+        "metadata": event_metadata,
+    }
 
 
 def matching_pattern(value: str, patterns: tuple[str, ...]) -> str:

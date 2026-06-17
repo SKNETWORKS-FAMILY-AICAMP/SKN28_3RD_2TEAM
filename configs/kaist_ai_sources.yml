@@ -5,7 +5,7 @@ checked_at: "2026-06-16"
 
 defaults:
   request_timeout_seconds: 30
-  polite_delay_seconds: 1
+  polite_delay_seconds: 0.2
   file_extensions:
     - pdf
     - hwp

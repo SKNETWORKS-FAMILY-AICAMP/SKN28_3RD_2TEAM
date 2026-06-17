@@ -5,7 +5,7 @@ import shutil
 from pathlib import Path
 
 from .adapters import create_adapter
-from .config import load_sources
+from .config import load_crawler_config, load_sources
 from .http_client import HttpClient
 from .models import Chunk, Document, SourceConfig
 from .processor import process_raw_documents
@@ -26,12 +26,18 @@ def run_crawl(
     collection_name: str | None = None,
     clean: bool = False,
 ) -> tuple[list[Document], list[Chunk]]:
-    sources = load_sources(config_path, source_ids)
+    crawler_config = load_crawler_config(config_path, source_ids)
+    sources = crawler_config.sources
     output_root = Path(output_root)
     if clean:
         clean_output(output_root, targets=("raw", "processed", "vector"))
 
-    _, crawl_errors = crawl_sources_raw(sources=sources, output_root=output_root)
+    _, crawl_errors = crawl_sources_raw(
+        sources=sources,
+        output_root=output_root,
+        request_timeout_seconds=crawler_config.request_timeout_seconds,
+        polite_delay_seconds=crawler_config.polite_delay_seconds,
+    )
     documents, chunks, _process_errors, _ = process_raw_data_from_sources(
         sources=sources,
         output_root=output_root,
@@ -58,11 +64,16 @@ def run_raw_crawl(
     source_ids: set[str] | None = None,
     clean: bool = False,
 ) -> tuple[int, list[dict]]:
-    sources = load_sources(config_path, source_ids)
+    crawler_config = load_crawler_config(config_path, source_ids)
     output_root = Path(output_root)
     if clean:
         clean_output(output_root, targets=("raw",))
-    return crawl_sources_raw(sources=sources, output_root=output_root)
+    return crawl_sources_raw(
+        sources=crawler_config.sources,
+        output_root=output_root,
+        request_timeout_seconds=crawler_config.request_timeout_seconds,
+        polite_delay_seconds=crawler_config.polite_delay_seconds,
+    )
 
 
 def process_raw_data(
@@ -80,8 +91,10 @@ def crawl_sources_raw(
     *,
     sources: list[SourceConfig],
     output_root: str | Path,
+    request_timeout_seconds: int = 30,
+    polite_delay_seconds: float = 0.0,
 ) -> tuple[int, list[dict]]:
-    client = HttpClient()
+    client = HttpClient(timeout_seconds=request_timeout_seconds, delay_seconds=polite_delay_seconds)
     store = RawStore(output_root)
     errors: list[dict] = []
     try:

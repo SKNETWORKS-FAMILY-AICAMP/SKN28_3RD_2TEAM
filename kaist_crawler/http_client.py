@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from time import monotonic, sleep
 
 import requests
 
@@ -29,8 +30,15 @@ class HeadResult:
 
 
 class HttpClient:
-    def __init__(self, timeout_seconds: int = 30, user_agent: str | None = None) -> None:
+    def __init__(
+        self,
+        timeout_seconds: int = 30,
+        user_agent: str | None = None,
+        delay_seconds: float = 0.0,
+    ) -> None:
         self.timeout_seconds = timeout_seconds
+        self.delay_seconds = max(0.0, float(delay_seconds))
+        self._last_request_started_at: float | None = None
         self.session = requests.Session()
         self.session.trust_env = False
         self.session.headers.update(
@@ -42,6 +50,7 @@ class HttpClient:
         )
 
     def get(self, url: str) -> FetchResult:
+        self._wait_before_request()
         response = self.session.get(url, timeout=self.timeout_seconds, allow_redirects=True)
         response.raise_for_status()
         return FetchResult(
@@ -53,6 +62,7 @@ class HttpClient:
         )
 
     def head(self, url: str) -> HeadResult:
+        self._wait_before_request()
         response = self.session.head(url, timeout=self.timeout_seconds, allow_redirects=True)
         response.raise_for_status()
         content_length = response.headers.get("content-length")
@@ -63,3 +73,16 @@ class HttpClient:
             status_code=response.status_code,
             content_length=int(content_length) if content_length and content_length.isdigit() else None,
         )
+
+    def _wait_before_request(self) -> None:
+        if self.delay_seconds <= 0:
+            self._last_request_started_at = monotonic()
+            return
+        now = monotonic()
+        if self._last_request_started_at is not None:
+            elapsed = now - self._last_request_started_at
+            remaining = self.delay_seconds - elapsed
+            if remaining > 0:
+                sleep(remaining)
+                now = monotonic()
+        self._last_request_started_at = now
