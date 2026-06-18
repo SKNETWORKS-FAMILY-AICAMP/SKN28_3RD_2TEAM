@@ -16,6 +16,7 @@ from .extractors import (
 from .models import Chunk, Document, RawRecord, SourceConfig
 from .policies import ProcessingFilterPolicy, filter_chunks, filter_documents, filter_event
 from .rag_metadata import infer_section_title, normalize_rag_metadata
+from .rag_relevance import classify_documents
 from .sheet_mapping import sheet_row_documents
 from .store import safe_filename, stable_id
 
@@ -24,6 +25,9 @@ def process_raw_documents(
     *,
     output_root: str | Path,
     sources: list[SourceConfig],
+    use_llm_relevance: bool = False,
+    relevance_model: str | None = None,
+    max_llm_relevance: int | None = None,
 ) -> tuple[list[Document], list[Chunk], list[dict], list[dict]]:
     output_root = Path(output_root)
     source_by_id = {source.id: source for source in sources}
@@ -109,6 +113,13 @@ def process_raw_documents(
 
     documents, document_filter_events = filter_documents(documents, policy_by_site)
     filtered.extend(document_filter_events)
+    classify_documents(
+        documents,
+        use_llm=use_llm_relevance,
+        llm_model=relevance_model,
+        max_llm=max_llm_relevance,
+        cache_path=output_root / ".cache" / "relevance_cache.jsonl",
+    )
     chunks = chunk_documents(documents)
     chunks, chunk_filter_events = filter_chunks(chunks, policy_by_site)
     filtered.extend(chunk_filter_events)

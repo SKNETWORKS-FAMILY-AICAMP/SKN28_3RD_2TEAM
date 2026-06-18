@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import collections
 import json
 from pathlib import Path
 
@@ -12,6 +13,7 @@ from .pipeline import (
     run_raw_crawl,
 )
 from .site_analyzer import analysis_to_json, analysis_to_yaml, analyze_site
+from .rag_relevance import DEFAULT_LLM_RELEVANCE_MODEL
 from .vector_store import DEFAULT_OPENAI_EMBEDDING_MODEL
 
 
@@ -51,6 +53,25 @@ def add_embedding_args(parser: argparse.ArgumentParser) -> None:
     )
 
 
+def add_relevance_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--use-llm-relevance",
+        action="store_true",
+        help="use LLM only for ambiguous document relevance decisions",
+    )
+    parser.add_argument(
+        "--relevance-model",
+        default=None,
+        help=f"LLM relevance model; default is {DEFAULT_LLM_RELEVANCE_MODEL}",
+    )
+    parser.add_argument(
+        "--max-llm-relevance",
+        type=int,
+        default=None,
+        help="maximum ambiguous documents to send to LLM relevance classifier",
+    )
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Graduate school RAG crawler")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -61,6 +82,12 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--source", action="append", default=[], help="source id to crawl; can be repeated")
     run.add_argument("--skip-vector", action="store_true", help="skip vector-store build")
     run.add_argument("--clean", action="store_true", help="delete raw, processed, and vector output before running")
+    run.add_argument(
+        "--include-non-candidates",
+        action="store_true",
+        help="include chunks marked vector_candidate=false in vector store",
+    )
+    add_relevance_args(run)
     add_embedding_args(run)
 
     raw = subparsers.add_parser("raw", help="collect raw data only")
@@ -74,10 +101,16 @@ def build_parser() -> argparse.ArgumentParser:
     process.add_argument("--output", default=DEFAULT_OUTPUT, help="output data directory")
     process.add_argument("--source", action="append", default=[], help="source id to process; can be repeated")
     process.add_argument("--clean", action="store_true", help="delete processed output before processing")
+    add_relevance_args(process)
 
     build = subparsers.add_parser("build-vector", help="build vector store from processed chunks")
     build.add_argument("--input", default=DEFAULT_CHUNKS_INPUT, help="chunks JSONL path")
     build.add_argument("--output", default=DEFAULT_OUTPUT, help="output data directory")
+    build.add_argument(
+        "--include-non-candidates",
+        action="store_true",
+        help="include chunks marked vector_candidate=false in vector store",
+    )
     add_embedding_args(build)
 
     analyze = subparsers.add_parser("analyze-site", help="analyze a school site and recommend a source config")
@@ -113,6 +146,10 @@ def main(argv: list[str] | None = None) -> int:
             embedding_dimensions=args.embedding_dimensions,
             embedding_batch_size=args.embedding_batch_size,
             collection_name=args.collection,
+            include_non_candidates=args.include_non_candidates,
+            use_llm_relevance=args.use_llm_relevance,
+            relevance_model=args.relevance_model,
+            max_llm_relevance=args.max_llm_relevance,
             clean=args.clean,
         )
         print(f"documents={len(documents)} chunks={len(chunks)} output={Path(args.output).resolve()}")
@@ -136,12 +173,20 @@ def main(argv: list[str] | None = None) -> int:
             output_root=args.output,
             source_ids=selected,
             clean=args.clean,
+            use_llm_relevance=args.use_llm_relevance,
+            relevance_model=args.relevance_model,
+            max_llm_relevance=args.max_llm_relevance,
         )
         for error in errors:
             print(json.dumps(error, ensure_ascii=False))
+        relevance_sources = collections.Counter(
+            str(doc.metadata.get("relevance_source") or "missing") for doc in documents
+        )
+        vector_candidates = sum(1 for chunk in chunks if chunk.metadata.get("vector_candidate", True) is not False)
         print(
             f"documents={len(documents)} chunks={len(chunks)} "
-            f"errors={len(errors)} filtered={len(filtered)} output={Path(args.output, 'processed').resolve()}"
+            f"vector_candidates={vector_candidates} errors={len(errors)} filtered={len(filtered)} "
+            f"relevance_sources={dict(relevance_sources)} output={Path(args.output, 'processed').resolve()}"
         )
         return 0
     if args.command == "build-vector":
@@ -153,6 +198,7 @@ def main(argv: list[str] | None = None) -> int:
             embedding_dimensions=args.embedding_dimensions,
             embedding_batch_size=args.embedding_batch_size,
             collection_name=args.collection,
+            include_non_candidates=args.include_non_candidates,
         )
         print(f"chunks={count} vector_output={Path(args.output, 'vector').resolve()}")
         return 0

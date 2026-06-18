@@ -93,6 +93,19 @@ python -m kaist_crawler run --config configs\kaist_sources.yml --output data\kai
 python -m kaist_crawler build-vector --input data\kaist\processed\chunks.jsonl --output data\kaist
 ```
 
+`process` 단계는 상담 RAG 적합성을 판단해 chunk metadata에 `vector_candidate`, `rag_priority`, `relevance_reason`을 추가합니다. 기본은 규칙 기반이며, 애매한 문서만 LLM으로 다시 판단하려면 OpenAI API key를 설정하고 다음 옵션을 사용합니다.
+
+```powershell
+$env:OPENAI_API_KEY = "sk-..."
+python -m kaist_crawler process --config configs\kaist_sources.yml --output data\kaist --clean --use-llm-relevance
+```
+
+`build-vector`는 기본적으로 `vector_candidate=false` chunk를 제외하고 저장합니다. 모든 chunk를 강제로 저장하려면 `--include-non-candidates`를 지정합니다.
+
+```powershell
+python -m kaist_crawler build-vector --input data\kaist\processed\chunks.jsonl --output data\kaist --include-non-candidates
+```
+
 OpenAI embedding을 사용하려면 `OPENAI_API_KEY`를 설정하고 `--embedding-provider openai`를 지정합니다.
 
 ```powershell
@@ -196,6 +209,7 @@ data/
 - `crawl_planner.py`: `SiteProfile`과 `CrawlPlan`을 만들어 사이트 구조와 수집 정책을 분리합니다.
 - `processor.py`: `raw/*/manifest.jsonl`을 읽어 documents/chunks를 생성합니다. PDF 텍스트 추출도 여기서 수행합니다.
 - `sheet_mapping.py`: Google Sheets 같은 정형 row 데이터를 RAG 문서 후보로 바꾸는 매핑 로직을 담당합니다.
+- `rag_relevance.py`: 상담 RAG에 적합한 문서인지 규칙 기반으로 판단하고, 옵션으로 애매한 문서만 LLM에 위임합니다.
 - `quality_gate.py`: 전처리 결과가 벡터 저장에 적합한지 평가하고 `quality_gate.json/md`를 생성합니다.
 - `policies.py`: raw 파일 다운로드 정책과 전처리 필터 정책을 정의합니다.
 - `pipeline.py`: `raw`, `process`, `run`, `build-vector` 흐름을 조합합니다.

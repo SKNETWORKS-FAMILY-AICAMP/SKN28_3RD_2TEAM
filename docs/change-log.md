@@ -12,6 +12,72 @@
 - 아직 해결하지 않은 리스크나 다음 작업을 함께 남긴다.
 - raw/processed/vector 산출물 개수가 바뀌면 핵심 숫자를 기록한다.
 
+## 2026-06-18
+
+### 변경 - Hybrid relevance 기반 vector 후보 선별
+- 상담 RAG에 적합한 문서/chunk만 Chroma에 저장하기 위해 `kaist_crawler/rag_relevance.py`를 추가했다.
+- 명확한 입학, 졸업요건, 교육과정, 장학, 교수진, 학과소개, 연락처 문서는 규칙 기반으로 `vector_candidate=true` 처리한다.
+- 기출문제, 뉴스레터, 채용, 세미나, 행사, 양식 등 상담 RAG 가치가 낮은 문서는 규칙 기반으로 `vector_candidate=false` 처리한다.
+- 애매한 `general`, PDF, SPA bundle fallback 문서는 기본적으로 규칙 fallback을 쓰고, `--use-llm-relevance` 옵션을 켜면 LLM이 2차 판단하도록 했다.
+- LLM relevance는 OpenAI API key가 있을 때만 동작하며, 결과는 `data/kaist/.cache/relevance_cache.jsonl`에 cache한다.
+- `process` 단계에서 문서 단위 relevance 결과를 chunk metadata로 전파하도록 했다.
+- `build-vector`는 기본적으로 `vector_candidate=false` chunk를 제외하고 저장하도록 변경했다.
+- 전체 저장이 필요할 때를 위해 `--include-non-candidates` 옵션을 추가했다.
+- Quality Gate summary에 `vector_candidate_chunks`를 추가하고 site별 `vector_candidate` 분포를 볼 수 있게 했다.
+- README에 hybrid relevance와 candidate-only vector build 사용법을 추가했다.
+- `process --use-llm-relevance` 옵션이 실제 `process_raw_data`로 전달되지 않던 CLI 버그를 수정했다.
+- `raw` 명령에 잘못 전달되던 relevance 인자를 제거했다.
+- CLI 옵션 전달 회귀를 막기 위해 `tests/test_cli.py`를 추가했다.
+
+### 이유
+- 대학원 상담 RAG 챗봇은 전체 수집량보다 공식 상담 답변에 필요한 chunk만 벡터에 넣는 것이 중요하다.
+- 수학과 PDF처럼 수집량이 많은 source가 vector store를 지배하면 다른 학과의 입학/교육과정/장학 답변 품질이 떨어질 수 있다.
+- 명확한 keep/drop은 규칙으로 빠르고 재현성 있게 처리하고, 애매한 문서만 LLM에 맡기는 방식이 비용과 품질의 균형이 좋다.
+
+### 검증
+```powershell
+python -B -m unittest discover -s tests
+python -B -m kaist_crawler process --config configs\kaist_sources.yml --output data\kaist --clean
+python -B -m kaist_crawler quality-gate --config configs\kaist_sources.yml --output data\kaist
+python -B -m kaist_crawler build-vector --input data\kaist\processed\chunks.jsonl --output data\kaist --embedding-provider hash
+python -B -m unittest tests.test_cli tests.test_rag_relevance
+```
+
+결과:
+
+```text
+tests=42 OK
+cli_relevance_option_test=OK
+documents=1247
+chunks=2750
+vector_candidate_chunks=1304
+non_candidate_chunks=1446
+quality_status=warn
+quality_score=60
+hash_vector_chunks=1304
+```
+
+candidate 분포:
+
+```text
+aic=34
+ai_systems=31
+ax=18
+fx=31
+kaist=35
+natsci=82
+physics=96
+mathsci=797
+chem=72
+quantum=82
+ai_college=26
+```
+
+남은 이슈:
+
+- 현재 검증은 규칙 기반 relevance만 사용했다. LLM relevance는 API 비용이 있으므로 별도 실행으로 검증해야 한다.
+- `kaist_mathsci`는 candidate만 남겨도 797개로 가장 크다. 다음 단계에서 retrieval 평가를 통해 PDF 후보를 더 줄일지 판단해야 한다.
+
 ## 2026-06-17
 
 ### 변경 - 재수집 오류 감소와 AI College fallback 수집 개선

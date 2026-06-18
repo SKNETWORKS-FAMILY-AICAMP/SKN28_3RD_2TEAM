@@ -25,6 +25,10 @@ def run_crawl(
     embedding_dimensions: int | None = None,
     embedding_batch_size: int = 64,
     collection_name: str | None = None,
+    include_non_candidates: bool = False,
+    use_llm_relevance: bool = False,
+    relevance_model: str | None = None,
+    max_llm_relevance: int | None = None,
     clean: bool = False,
 ) -> tuple[list[Document], list[Chunk]]:
     crawler_config = load_crawler_config(config_path, source_ids)
@@ -44,10 +48,13 @@ def run_crawl(
         output_root=output_root,
         clean=False,
         extra_errors=crawl_errors,
+        use_llm_relevance=use_llm_relevance,
+        relevance_model=relevance_model,
+        max_llm_relevance=max_llm_relevance,
     )
     if build_vectors:
         build_vector_store(
-            chunks,
+            vector_candidate_chunks(chunks, include_non_candidates=include_non_candidates),
             output_root,
             collection_name=collection_name,
             embedding_provider=embedding_provider,
@@ -83,9 +90,19 @@ def process_raw_data(
     output_root: str | Path,
     source_ids: set[str] | None = None,
     clean: bool = False,
+    use_llm_relevance: bool = False,
+    relevance_model: str | None = None,
+    max_llm_relevance: int | None = None,
 ) -> tuple[list[Document], list[Chunk], list[dict], list[dict]]:
     sources = load_sources(config_path, source_ids)
-    return process_raw_data_from_sources(sources=sources, output_root=output_root, clean=clean)
+    return process_raw_data_from_sources(
+        sources=sources,
+        output_root=output_root,
+        clean=clean,
+        use_llm_relevance=use_llm_relevance,
+        relevance_model=relevance_model,
+        max_llm_relevance=max_llm_relevance,
+    )
 
 
 def crawl_sources_raw(
@@ -115,13 +132,22 @@ def process_raw_data_from_sources(
     output_root: str | Path,
     clean: bool = False,
     extra_errors: list[dict] | None = None,
+    use_llm_relevance: bool = False,
+    relevance_model: str | None = None,
+    max_llm_relevance: int | None = None,
 ) -> tuple[list[Document], list[Chunk], list[dict], list[dict]]:
     output_root = Path(output_root)
     if clean:
         clean_output(output_root, targets=("processed",))
     processed_root = output_root / "processed"
     processed_root.mkdir(parents=True, exist_ok=True)
-    documents, chunks, errors, filtered = process_raw_documents(output_root=output_root, sources=sources)
+    documents, chunks, errors, filtered = process_raw_documents(
+        output_root=output_root,
+        sources=sources,
+        use_llm_relevance=use_llm_relevance,
+        relevance_model=relevance_model,
+        max_llm_relevance=max_llm_relevance,
+    )
     all_errors = list(extra_errors or [])
     all_errors.extend(errors)
     write_jsonl(processed_root / "documents.jsonl", [doc.to_dict() for doc in documents])
@@ -169,6 +195,7 @@ def build_vectors_from_chunks(
     embedding_dimensions: int | None = None,
     embedding_batch_size: int = 64,
     collection_name: str | None = None,
+    include_non_candidates: bool = False,
 ) -> int:
     chunks = []
     with Path(input_path).open("r", encoding="utf-8") as f:
@@ -188,7 +215,7 @@ def build_vectors_from_chunks(
                 )
             )
     build_vector_store(
-        chunks,
+        vector_candidate_chunks(chunks, include_non_candidates=include_non_candidates),
         output_root,
         collection_name=collection_name,
         embedding_provider=embedding_provider,
@@ -196,7 +223,13 @@ def build_vectors_from_chunks(
         embedding_dimensions=embedding_dimensions,
         embedding_batch_size=embedding_batch_size,
     )
-    return len(chunks)
+    return len(vector_candidate_chunks(chunks, include_non_candidates=include_non_candidates))
+
+
+def vector_candidate_chunks(chunks: list[Chunk], *, include_non_candidates: bool = False) -> list[Chunk]:
+    if include_non_candidates:
+        return chunks
+    return [chunk for chunk in chunks if chunk.metadata.get("vector_candidate", True) is not False]
 
 
 def clean_output(output_root: str | Path, *, targets: tuple[str, ...]) -> None:

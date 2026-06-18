@@ -65,6 +65,9 @@ def build_quality_gate_report(
         warnings.append("At least one site failed the quality gate.")
     if sum(1 for chunk in chunks if not chunk.metadata.get("dept")):
         warnings.append("Some chunks are missing dept metadata.")
+    candidate_chunks = [chunk for chunk in chunks if chunk.metadata.get("vector_candidate", True) is not False]
+    if chunks and not candidate_chunks:
+        warnings.append("No chunks are marked as vector candidates.")
 
     score = min((site.score for site in sites), default=0)
     status = status_from_score(score)
@@ -76,6 +79,7 @@ def build_quality_gate_report(
     summary = {
         "documents": len(documents),
         "chunks": len(chunks),
+        "vector_candidate_chunks": len(candidate_chunks),
         "errors": len(errors),
         "filtered": len(filtered),
         "institution": dict(counter_from_metadata(chunks, "institution")),
@@ -120,6 +124,11 @@ def build_site_quality(
     if filtered_short > max(20, len(documents) * 2):
         warnings.append(f"Many short documents were filtered ({filtered_short}).")
         score -= 5
+    candidate_count = sum(1 for chunk in chunks if chunk.metadata.get("vector_candidate", True) is not False)
+    candidate_ratio = ratio(candidate_count, len(chunks))
+    if chunks and candidate_ratio < 0.25:
+        warnings.append(f"vector candidate ratio is low ({candidate_ratio:.0%}).")
+        score -= 10
 
     score = max(0, score)
     return SiteQuality(
@@ -135,6 +144,7 @@ def build_site_quality(
             "document_type": dict(counter_from_metadata(documents, "document_type")),
             "source_type": dict(counter_from_metadata(chunks, "source_type")),
             "content_type": dict(counter_from_metadata(chunks, "content_type")),
+            "vector_candidate": dict(counter_from_metadata(chunks, "vector_candidate")),
             "dept": dict(counter_from_metadata(chunks, "dept")),
             "filtered_reason": dict(Counter(event.get("reason") or "unknown" for event in filtered)),
             "error_stage": dict(Counter(error.get("stage") or "unknown" for error in errors)),
@@ -157,7 +167,7 @@ def ratio(part: int, total: int) -> float:
 def counter_from_metadata(rows: Iterable[Document | Chunk], key: str) -> Counter[str]:
     counter: Counter[str] = Counter()
     for row in rows:
-        value = row.metadata.get(key) or "MISSING"
+        value = row.metadata[key] if key in row.metadata else "MISSING"
         counter[str(value)] += 1
     return counter
 
@@ -183,6 +193,7 @@ def quality_gate_markdown(report: QualityGateReport) -> str:
         f"- score: `{report.score}`",
         f"- documents: `{report.summary['documents']}`",
         f"- chunks: `{report.summary['chunks']}`",
+        f"- vector_candidate_chunks: `{report.summary.get('vector_candidate_chunks', report.summary['chunks'])}`",
         f"- errors: `{report.summary['errors']}`",
         f"- filtered: `{report.summary['filtered']}`",
         "",
