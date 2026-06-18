@@ -8,6 +8,7 @@ from bs4 import BeautifulSoup
 
 from .extractors import extract_file_refs, parse_gviz, slugify
 from .http_client import FetchResult, HttpClient
+from .link_discovery import same_origin_file_link_refs, same_origin_file_links, same_origin_html_links
 from .models import SourceConfig
 from .policies import FilePolicy
 from .rendering import PlaywrightRenderer
@@ -32,6 +33,10 @@ class BaseAdapter:
     def file_policy(self) -> FilePolicy:
         return FilePolicy.from_options(self.crawl_options.get("file_policy", {}))
 
+    @property
+    def reuse_existing_raw(self) -> bool:
+        return bool(self.crawl_options.get("reuse_existing_raw", True))
+
     def crawl(self) -> None:
         raise NotImplementedError
 
@@ -44,6 +49,10 @@ class BaseAdapter:
         parent_source_id: str | None = None,
         metadata: dict | None = None,
     ) -> tuple[FetchResult, str]:
+        if self.reuse_existing_raw:
+            existing = self.store.find_existing(site=self.source.id, category=category, source_url=url)
+            if existing:
+                return self._fetch_result_from_existing(existing), existing.raw_path
         result = self.client.get(url)
         record = self.store.save(
             site=self.source.id,
@@ -70,6 +79,10 @@ class BaseAdapter:
         parent_source_id: str | None = None,
         metadata: dict | None = None,
     ) -> str:
+        if self.reuse_existing_raw:
+            existing = self.store.find_existing(site=self.source.id, category=category, source_url=url)
+            if existing:
+                return existing.raw_path
         record = self.store.save(
             site=self.source.id,
             adapter=self.source.adapter,
@@ -84,11 +97,18 @@ class BaseAdapter:
         )
         return record.raw_path
 
-    def download_file(self, file_url: str, parent_source_id: str | None = None) -> None:
+    def download_file(
+        self,
+        file_url: str,
+        parent_source_id: str | None = None,
+        metadata: dict | None = None,
+    ) -> None:
         absolute = urljoin(self.source.base_url, file_url)
         if absolute in self._downloaded_urls:
             return
         self._downloaded_urls.add(absolute)
+        metadata = dict(metadata or {})
+        context = str(metadata.get("context", ""))
 
         policy = self.file_policy
         parsed = urlparse(absolute)
@@ -101,7 +121,7 @@ class BaseAdapter:
             )
             return
 
-        decision = policy.evaluate(requested_url=absolute)
+        decision = policy.evaluate(requested_url=absolute, context=context)
         if decision.skip:
             self._record_skipped_file(
                 url=absolute,
@@ -111,6 +131,11 @@ class BaseAdapter:
             )
             return
 
+        if self.reuse_existing_raw:
+            existing = self.store.find_existing(site=self.source.id, category="files", source_url=absolute)
+            if existing:
+                return
+
         try:
             head_result = self.client.head(absolute)
             decision = policy.evaluate(
@@ -118,6 +143,7 @@ class BaseAdapter:
                 final_url=head_result.final_url,
                 content_length=head_result.content_length,
                 content_type=head_result.content_type,
+                context=context,
             )
             if decision.skip:
                 self._record_skipped_file(
@@ -140,6 +166,7 @@ class BaseAdapter:
             final_url=result.final_url,
             content_length=len(result.content),
             content_type=result.content_type,
+            context=context,
         )
         if decision.skip:
             self._record_skipped_file(
@@ -167,7 +194,7 @@ class BaseAdapter:
             content_type=result.content_type,
             filename_hint=safe_filename(urlparse(result.final_url).path or urlparse(absolute).path, "file"),
             parent_source_id=parent_source_id,
-            metadata={"download_url": absolute},
+            metadata={"download_url": absolute, **metadata},
         )
 
     def _record_skipped_file(
@@ -204,29 +231,30 @@ class BaseAdapter:
             self.download_file(file_ref)
 
     def _same_origin_file_links(self, base_url: str, content: str) -> list[str]:
-        soup = BeautifulSoup(content, "html.parser")
-        origin = urlparse(self.source.base_url).netloc
-        options = self.crawl_options
-        allowed_netlocs = {origin, *options.get("domain_aliases", [])}
-        links: list[str] = []
-        file_tags = soup.find_all(["a", "link", "script"], href=True)
-        file_tags.extend(soup.find_all(["a", "link", "script"], src=True))
-        for tag in file_tags:
-            href = str(tag.get("href") or tag.get("src") or "").strip()
-            if not href:
-                continue
-            url = urljoin(base_url, href)
-            parsed = urlparse(url)
-            if parsed.scheme not in {"http", "https"}:
-                continue
-            if parsed.netloc not in allowed_netlocs:
-                continue
-            if Path(parsed.path).suffix.lower() not in FILE_EXTENSIONS:
-                continue
-            clean = parsed._replace(fragment="").geturl()
-            if clean not in links:
-                links.append(clean)
-        return links
+        return same_origin_file_links(
+            base_url=base_url,
+            content=content,
+            source_base_url=self.source.base_url,
+            domain_aliases=tuple(self.crawl_options.get("domain_aliases", [])),
+        )
+
+    def _same_origin_file_link_refs(self, base_url: str, content: str):
+        return same_origin_file_link_refs(
+            base_url=base_url,
+            content=content,
+            source_base_url=self.source.base_url,
+            domain_aliases=tuple(self.crawl_options.get("domain_aliases", [])),
+        )
+
+    def _fetch_result_from_existing(self, record) -> FetchResult:
+        raw_path = Path(record.raw_path)
+        return FetchResult(
+            url=record.source_url,
+            final_url=record.canonical_url,
+            content=raw_path.read_bytes(),
+            content_type=record.content_type,
+            status_code=200,
+        )
 
     def record_error(self, *, stage: str, url: str, error: Exception, metadata: dict | None = None) -> None:
         self.errors.append(
@@ -266,50 +294,22 @@ class StaticHtmlAdapter(BaseAdapter):
             for linked_page in linked_pages:
                 if linked_page not in page_urls:
                     page_urls.append(linked_page)
-            for file_url in self._same_origin_file_links(result.final_url, result.text):
-                self.download_file(file_url)
+            for file_ref in self._same_origin_file_link_refs(result.final_url, result.text):
+                self.download_file(file_ref.url, metadata=file_ref.to_metadata())
         self.download_known_files()
 
     def _same_origin_html_links(self, base_url: str, content: str) -> list[str]:
-        soup = BeautifulSoup(content, "html.parser")
-        origin = urlparse(self.source.base_url).netloc
         options = self.crawl_options
-        allowed_netlocs = {origin, *options.get("domain_aliases", [])}
-        include_prefixes = tuple(options.get("include_path_prefixes", []))
-        exclude_prefixes = tuple(options.get("exclude_path_prefixes", []))
-        exclude_paths = set(options.get("exclude_paths", []))
-        links = []
-        for tag in soup.find_all("a", href=True):
-            href = str(tag["href"]).strip()
-            lowered_href = href.lower()
-            if (
-                not href
-                or href.startswith("#")
-                or lowered_href.startswith(("mailto:", "tel:", "javascript"))
-                or lowered_href in {"void(0)", "void(0);"}
-            ):
-                continue
-            url = urljoin(base_url, href)
-            parsed = urlparse(url)
-            if parsed.netloc not in allowed_netlocs:
-                continue
-            if parsed.path.rstrip("/").rsplit("/", 1)[-1].startswith("@"):
-                continue
-            if is_download_endpoint(parsed.path):
-                continue
-            if include_prefixes and not parsed.path.startswith(include_prefixes):
-                continue
-            if parsed.path in exclude_paths:
-                continue
-            if exclude_prefixes and parsed.path.startswith(exclude_prefixes):
-                continue
-            suffix = Path(parsed.path).suffix.lower()
-            is_query_page = suffix == ".php" and any(key in parsed.query for key in ("mid=", "document_srl="))
-            if suffix in {"", ".html", ".htm"} or parsed.path in ("", "/") or is_query_page:
-                clean = parsed._replace(fragment="", query=parsed.query if is_query_page else "").geturl()
-                if clean not in links:
-                    links.append(clean)
-        return links
+        return same_origin_html_links(
+            base_url=base_url,
+            content=content,
+            source_base_url=self.source.base_url,
+            domain_aliases=tuple(options.get("domain_aliases", [])),
+            include_path_prefixes=tuple(options.get("include_path_prefixes", [])),
+            exclude_path_prefixes=tuple(options.get("exclude_path_prefixes", [])),
+            exclude_paths=tuple(options.get("exclude_paths", [])),
+            exclude_calendar_archive_paths=bool(options.get("exclude_calendar_archive_paths", True)),
+        )
 
 
 class ViteReactSpaAdapter(BaseAdapter):
@@ -406,6 +406,11 @@ class ViteReactSpaAdapter(BaseAdapter):
         route_url = urljoin(self.source.base_url, route)
         if route_url in self._collected_route_urls:
             return True
+        if self.reuse_existing_raw:
+            existing = self.store.find_existing(site=self.source.id, category="pages", source_url=route_url)
+            if existing:
+                self._collected_route_urls.add(route_url)
+                return True
         try:
             rendered = renderer.render(route_url)
             self.store_bytes(
@@ -416,8 +421,27 @@ class ViteReactSpaAdapter(BaseAdapter):
                 filename_hint=f"{route_to_filename(route)}_rendered.html",
                 metadata={"route": route, "rendered": True, "renderer": "playwright"},
             )
-            for file_url in self._same_origin_file_links(rendered.url, rendered.html):
-                self.download_file(file_url)
+            for file_ref in self._same_origin_file_link_refs(rendered.url, rendered.html):
+                self.download_file(file_ref.url, metadata=file_ref.to_metadata())
+            self._collected_route_urls.add(route_url)
+            return True
+        except Exception as exc:
+            fallback_saved = self._fetch_route_shell(route, stage=stage)
+            if not fallback_saved:
+                self.record_error(
+                    stage=stage,
+                    url=route_url,
+                    error=exc,
+                    metadata={"route": route, "rendered": True},
+                )
+            return False
+
+    def _fetch_route_shell(self, route: str, *, stage: str) -> bool:
+        route_url = urljoin(self.source.base_url, route)
+        if route_url in self._collected_route_urls:
+            return True
+        try:
+            self.fetch_and_store(route_url, category="pages", metadata={"route": route, "rendered": False})
             self._collected_route_urls.add(route_url)
             return True
         except Exception as exc:
@@ -425,25 +449,9 @@ class ViteReactSpaAdapter(BaseAdapter):
                 stage=stage,
                 url=route_url,
                 error=exc,
-                metadata={"route": route, "rendered": True},
-            )
-            self._fetch_route_shell(route, stage=stage)
-            return False
-
-    def _fetch_route_shell(self, route: str, *, stage: str) -> None:
-        route_url = urljoin(self.source.base_url, route)
-        if route_url in self._collected_route_urls:
-            return
-        try:
-            self.fetch_and_store(route_url, category="pages", metadata={"route": route, "rendered": False})
-            self._collected_route_urls.add(route_url)
-        except Exception as exc:
-            self.record_error(
-                stage=stage,
-                url=route_url,
-                error=exc,
                 metadata={"route": route, "rendered": False},
             )
+            return False
 
 
 class FxSheetsSpaAdapter(ViteReactSpaAdapter):
@@ -509,24 +517,6 @@ class FxSheetsSpaAdapter(ViteReactSpaAdapter):
 def route_to_filename(route: str) -> str:
     route = route.strip("/") or "index"
     return re.sub(r"[^A-Za-z0-9_.-]+", "_", route).strip("._") or "route"
-
-
-FILE_EXTENSIONS = {
-    ".pdf",
-    ".hwp",
-    ".hwpx",
-    ".doc",
-    ".docx",
-    ".ppt",
-    ".pptx",
-    ".xls",
-    ".xlsx",
-}
-
-
-def is_download_endpoint(path: str) -> bool:
-    lowered = path.lower()
-    return any(part in lowered for part in ("/file_down/", "/download/", "/downloads/", "/attachment/"))
 
 
 def parse_google_sheet_source(source_ref: object) -> tuple[str, str] | None:

@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import tempfile
 import unittest
+from pathlib import Path
 
 from kaist_crawler.adapters import StaticHtmlAdapter
-from kaist_crawler.models import SourceConfig
+from kaist_crawler.models import RawRecord, SourceConfig
 
 
 class StaticHtmlAdapterTests(unittest.TestCase):
@@ -26,6 +28,7 @@ class StaticHtmlAdapterTests(unittest.TestCase):
             <a href="/news/file_down/id/209">Download</a>
             <a href="javascript">Broken JS</a>
             <a href="/@facebook">Facebook</a>
+            <a href="/~oldhome">Old personal home</a>
             <a href="https://other.example.edu/faculty">Other</a>
             """,
         )
@@ -37,7 +40,28 @@ class StaticHtmlAdapterTests(unittest.TestCase):
         self.assertNotIn("https://grad.example.edu/news/file_down/id/209", links)
         self.assertNotIn("https://grad.example.edu/javascript", links)
         self.assertNotIn("https://grad.example.edu/@facebook", links)
+        self.assertNotIn("https://grad.example.edu/~oldhome", links)
         self.assertNotIn("https://other.example.edu/faculty", links)
+
+    def test_same_origin_links_exclude_calendar_archive_paths_by_default(self) -> None:
+        source = SourceConfig(
+            id="sample",
+            name="Sample",
+            base_url="https://grad.example.edu/",
+            adapter="static_html",
+        )
+        adapter = StaticHtmlAdapter(source, client=None, store=None)  # type: ignore[arg-type]
+
+        links = adapter._same_origin_html_links(
+            "https://grad.example.edu/",
+            """
+            <a href="/202605">May 2026</a>
+            <a href="/admission">Admission</a>
+            """,
+        )
+
+        self.assertNotIn("https://grad.example.edu/202605", links)
+        self.assertIn("https://grad.example.edu/admission", links)
 
     def test_file_links_come_from_html_attributes_only(self) -> None:
         source = SourceConfig(
@@ -58,6 +82,27 @@ class StaticHtmlAdapterTests(unittest.TestCase):
         )
 
         self.assertEqual(links, ["https://grad.example.edu/files/admission-guide.pdf"])
+
+    def test_file_link_refs_include_anchor_context(self) -> None:
+        source = SourceConfig(
+            id="sample",
+            name="Sample",
+            base_url="https://grad.example.edu/",
+            adapter="static_html",
+        )
+        adapter = StaticHtmlAdapter(source, client=None, store=None)  # type: ignore[arg-type]
+
+        refs = adapter._same_origin_file_link_refs(
+            "https://grad.example.edu/admission",
+            """
+            <main>
+              <p>Graduate admission guide <a href="/files/guide.pdf">Download</a></p>
+            </main>
+            """,
+        )
+
+        self.assertEqual(refs[0].url, "https://grad.example.edu/files/guide.pdf")
+        self.assertIn("Graduate admission guide", refs[0].context)
 
     def test_download_file_applies_policy_before_network_request(self) -> None:
         source = SourceConfig(
@@ -92,6 +137,36 @@ class StaticHtmlAdapterTests(unittest.TestCase):
 
         self.assertEqual(store.skipped[0]["reason"], "unsupported_url_scheme")
 
+    def test_fetch_and_store_reuses_existing_raw_without_network(self) -> None:
+        source = SourceConfig(
+            id="sample",
+            name="Sample",
+            base_url="https://grad.example.edu/",
+            adapter="static_html",
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            raw_path = Path(tmp) / "index.html"
+            raw_path.write_text("<html>cached</html>", encoding="utf-8")
+            store = ExistingStore(
+                RawRecord(
+                    source_id="sample:1",
+                    site="sample",
+                    adapter="static_html",
+                    source_url="https://grad.example.edu/",
+                    canonical_url="https://grad.example.edu/",
+                    content_type="text/html; charset=utf-8",
+                    raw_path=str(raw_path),
+                    sha256="abc",
+                    fetched_at="2026-06-18T00:00:00+09:00",
+                )
+            )
+            adapter = StaticHtmlAdapter(source, client=FailingClient(), store=store)  # type: ignore[arg-type]
+
+            result, reused_path = adapter.fetch_and_store("https://grad.example.edu/", category="pages")
+
+        self.assertEqual(reused_path, str(raw_path))
+        self.assertEqual(result.text, "<html>cached</html>")
+
 
 class FailingClient:
     def head(self, url: str) -> None:
@@ -125,6 +200,15 @@ class FakeStore:
                 "metadata": metadata or {},
             }
         )
+
+
+class ExistingStore(FakeStore):
+    def __init__(self, record: RawRecord) -> None:
+        super().__init__()
+        self.record = record
+
+    def find_existing(self, *, site: str, category: str, source_url: str) -> RawRecord | None:
+        return self.record
 
 
 if __name__ == "__main__":

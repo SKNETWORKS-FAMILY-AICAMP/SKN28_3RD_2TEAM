@@ -8,6 +8,7 @@ from pathlib import Path
 from urllib.parse import unquote, urlparse
 
 from .models import RawRecord
+from .raw_manifest import RawManifestIndex
 
 
 KST = timezone(timedelta(hours=9))
@@ -54,7 +55,9 @@ class RawStore:
         self.raw_root.mkdir(parents=True, exist_ok=True)
         self._manifest_handles: dict[str, object] = {}
         self._skipped_handles: dict[str, object] = {}
+        self._manifest_index = RawManifestIndex(self.raw_root)
         self.saved_count = 0
+        self.reused_count = 0
 
     def close(self) -> None:
         for handle in self._manifest_handles.values():
@@ -106,6 +109,19 @@ class RawStore:
         self._append_manifest(site, record)
         self.saved_count += 1
         return record
+
+    def find_existing(
+        self,
+        *,
+        site: str,
+        category: str,
+        source_url: str,
+    ) -> RawRecord | None:
+        record = self._manifest_index.find(site=site, category=category, source_url=source_url)
+        if record and Path(record.raw_path).exists():
+            self.reused_count += 1
+            return record
+        return None
 
     def record_skipped_file(
         self,

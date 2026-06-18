@@ -57,14 +57,11 @@ def process_raw_documents(
             )
             continue
 
-        category = raw_category(record)
-        suffix = raw_path.suffix.lower()
-        content_type = record.content_type.lower()
         policy = policy_by_site.get(record.site, ProcessingFilterPolicy())
         decision = policy.evaluate_raw_record(
             record=record,
             raw_path=raw_path,
-            category=category,
+            category=raw_category(record),
             seen_sha=seen_raw_sha,
         )
         if decision.skip:
@@ -82,34 +79,19 @@ def process_raw_documents(
         seen_raw_sha.add(record.sha256)
 
         try:
-            if category == "pages" and ("html" in content_type or suffix in {"", ".html", ".htm"}):
-                process_html_record(documents, source=source, record=record, raw_path=raw_path)
-            elif category == "assets" and (suffix == ".js" or "javascript" in content_type):
-                text = js_literal_text(read_text(raw_path))
-                key = (record.site, text)
-                if text and key not in seen_bundle_texts:
-                    seen_bundle_texts.add(key)
-                    bundle_texts_by_site[record.site].append(text)
-            elif category == "sheets":
-                process_sheet_record(documents, source=source, record=record, raw_path=raw_path)
-            elif category == "files" and suffix == ".pdf":
-                process_pdf_record(documents, errors, source=source, record=record, raw_path=raw_path)
+            process_raw_record(
+                documents=documents,
+                errors=errors,
+                bundle_texts_by_site=bundle_texts_by_site,
+                seen_bundle_texts=seen_bundle_texts,
+                source=source,
+                record=record,
+                raw_path=raw_path,
+            )
         except Exception as exc:
             errors.append(processing_error(stage="process_raw_record", record=record, error=exc))
 
-    for site, texts in bundle_texts_by_site.items():
-        source = source_by_id.get(site)
-        if source is None or not texts:
-            continue
-        add_document(
-            documents,
-            site=site,
-            source_url=source.base_url,
-            title=f"{source.name} SPA bundle text",
-            text="\n\n".join(texts),
-            raw_path=None,
-            metadata=source_scope_metadata(source, {"document_type": "spa_bundle_text"}),
-        )
+    add_spa_bundle_documents(documents, bundle_texts_by_site=bundle_texts_by_site, source_by_id=source_by_id)
 
     documents, document_filter_events = filter_documents(documents, policy_by_site)
     filtered.extend(document_filter_events)
@@ -124,6 +106,69 @@ def process_raw_documents(
     chunks, chunk_filter_events = filter_chunks(chunks, policy_by_site)
     filtered.extend(chunk_filter_events)
     return documents, chunks, errors, filtered
+
+
+def process_raw_record(
+    *,
+    documents: list[Document],
+    errors: list[dict],
+    bundle_texts_by_site: dict[str, list[str]],
+    seen_bundle_texts: set[tuple[str, str]],
+    source: SourceConfig,
+    record: RawRecord,
+    raw_path: Path,
+) -> None:
+    category = raw_category(record)
+    suffix = raw_path.suffix.lower()
+    content_type = record.content_type.lower()
+    if category == "pages" and ("html" in content_type or suffix in {"", ".html", ".htm"}):
+        process_html_record(documents, source=source, record=record, raw_path=raw_path)
+    elif category == "assets" and (suffix == ".js" or "javascript" in content_type):
+        collect_spa_bundle_text(
+            bundle_texts_by_site=bundle_texts_by_site,
+            seen_bundle_texts=seen_bundle_texts,
+            record=record,
+            raw_path=raw_path,
+        )
+    elif category == "sheets":
+        process_sheet_record(documents, source=source, record=record, raw_path=raw_path)
+    elif category == "files" and suffix == ".pdf":
+        process_pdf_record(documents, errors, source=source, record=record, raw_path=raw_path)
+
+
+def collect_spa_bundle_text(
+    *,
+    bundle_texts_by_site: dict[str, list[str]],
+    seen_bundle_texts: set[tuple[str, str]],
+    record: RawRecord,
+    raw_path: Path,
+) -> None:
+    text = js_literal_text(read_text(raw_path))
+    key = (record.site, text)
+    if text and key not in seen_bundle_texts:
+        seen_bundle_texts.add(key)
+        bundle_texts_by_site[record.site].append(text)
+
+
+def add_spa_bundle_documents(
+    documents: list[Document],
+    *,
+    bundle_texts_by_site: dict[str, list[str]],
+    source_by_id: dict[str, SourceConfig],
+) -> None:
+    for site, texts in bundle_texts_by_site.items():
+        source = source_by_id.get(site)
+        if source is None or not texts:
+            continue
+        add_document(
+            documents,
+            site=site,
+            source_url=source.base_url,
+            title=f"{source.name} SPA bundle text",
+            text="\n\n".join(texts),
+            raw_path=None,
+            metadata=source_scope_metadata(source, {"document_type": "spa_bundle_text"}),
+        )
 
 
 def load_raw_records(

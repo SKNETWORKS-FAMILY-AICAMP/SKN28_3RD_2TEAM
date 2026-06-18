@@ -52,6 +52,34 @@ class FilePolicyTests(unittest.TestCase):
 
         self.assertFalse(decision.skip)
 
+    def test_excludes_matching_link_context_pattern(self) -> None:
+        policy = FilePolicy(exclude_context_patterns=(r"(?i)seminar",))
+
+        decision = policy.evaluate(
+            requested_url="https://example.edu/files/notice.pdf",
+            content_length=1024,
+            content_type="application/pdf",
+            context="Weekly seminar handout",
+        )
+
+        self.assertTrue(decision.skip)
+        self.assertEqual(decision.reason, "excluded_context_pattern")
+
+    def test_include_context_pattern_overrides_exclude_context(self) -> None:
+        policy = FilePolicy(
+            exclude_context_patterns=(r"(?i)seminar",),
+            include_context_patterns=(r"(?i)graduate admission",),
+        )
+
+        decision = policy.evaluate(
+            requested_url="https://example.edu/files/guide.pdf",
+            content_length=1024,
+            content_type="application/pdf",
+            context="Graduate admission seminar guide",
+        )
+
+        self.assertFalse(decision.skip)
+
 
 class ProcessingFilterPolicyTests(unittest.TestCase):
     def test_excludes_pdf_by_url_pattern_before_text_extraction(self) -> None:

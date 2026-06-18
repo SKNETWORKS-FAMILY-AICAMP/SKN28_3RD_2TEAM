@@ -12,6 +12,7 @@ from bs4 import BeautifulSoup
 from .crawl_planner import CrawlPlan, SiteProfile, build_crawl_plan, build_site_profile
 from .extractors import extract_file_refs
 from .http_client import FetchResult, HttpClient
+from .link_discovery import FILE_EXTENSIONS, same_origin_file_links
 
 
 GRADUATE_ROUTE_HINTS: tuple[str, ...] = (
@@ -358,6 +359,8 @@ def same_origin_only(base_url: str, urls: list[str], *, preserve_query: bool = F
 def known_file_refs(base_url: str, texts: list[str]) -> list[str]:
     refs: list[str] = []
     for text in texts:
+        for url in same_origin_file_links(base_url=base_url, content=text, source_base_url=base_url):
+            append_unique(refs, url)
         for ref in extract_file_refs(text):
             url = urljoin(base_url, ref)
             if is_probable_download_url(url):
@@ -368,8 +371,8 @@ def known_file_refs(base_url: str, texts: list[str]) -> list[str]:
 def is_probable_download_url(url: str) -> bool:
     parsed = urlparse(url)
     path = parsed.path
-    suffix = path.rsplit(".", 1)[-1].lower() if "." in path else ""
-    if suffix not in {"pdf", "hwp", "hwpx", "doc", "docx", "xls", "xlsx", "ppt", "pptx"}:
+    suffix = f".{path.rsplit('.', 1)[-1].lower()}" if "." in path else ""
+    if suffix not in FILE_EXTENSIONS:
         return False
     lower_path = path.lower()
     noisy_tokens = (

@@ -14,6 +14,43 @@ COMMON_FILE_EXCLUDE_PATTERNS = (
     r"(?i)report",
 )
 
+COUNSELING_FILE_CONTEXT_PATTERNS = (
+    r"(?i)admission",
+    r"(?i)graduate",
+    r"(?i)curriculum",
+    r"(?i)course",
+    r"(?i)requirement",
+    r"(?i)scholarship",
+    r"(?i)tuition",
+    "입학",
+    "대학원",
+    "교과",
+    "교육과정",
+    "졸업",
+    "이수",
+    "장학",
+    "등록금",
+)
+
+LOW_VALUE_FILE_CONTEXT_PATTERNS = (
+    r"(?i)newsletter",
+    r"(?i)magazine",
+    r"(?i)seminar",
+    r"(?i)colloquium",
+    r"(?i)workshop",
+    r"(?i)job",
+    r"(?i)recruit",
+    r"(?i)old\s*exam",
+    r"(?i)past\s*exam",
+    "뉴스레터",
+    "소식지",
+    "세미나",
+    "콜로퀴움",
+    "워크숍",
+    "채용",
+    "기출",
+)
+
 LOW_VALUE_PDF_PATTERNS = (
     r"(?i)/oldexam/",
     r"(?i)old[-_]?exam",
@@ -230,6 +267,8 @@ def build_file_policy(profile: SiteProfile) -> dict[str, Any]:
         "max_file_size_mb": 30,
         "exclude_url_patterns": dedupe(exclude_patterns),
         "include_url_patterns": [],
+        "exclude_context_patterns": list(LOW_VALUE_FILE_CONTEXT_PATTERNS),
+        "include_context_patterns": list(COUNSELING_FILE_CONTEXT_PATTERNS),
         "skip_unknown_size": False,
     }
 
@@ -244,9 +283,11 @@ def build_raw_options(
         return {
             "max_pages": 80,
             "follow_html_links": True,
+            "reuse_existing_raw": True,
             "file_policy": file_policy,
         }
     return {
+        "reuse_existing_raw": True,
         "render_routes": True,
         "render_timeout_ms": 10000,
         "render_wait_until": "domcontentloaded",

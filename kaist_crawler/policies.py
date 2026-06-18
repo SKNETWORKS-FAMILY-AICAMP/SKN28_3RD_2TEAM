@@ -20,6 +20,8 @@ class FilePolicy:
     max_file_size_mb: float | None = None
     exclude_url_patterns: tuple[str, ...] = ()
     include_url_patterns: tuple[str, ...] = ()
+    exclude_context_patterns: tuple[str, ...] = ()
+    include_context_patterns: tuple[str, ...] = ()
     skip_unknown_size: bool = False
 
     @classmethod
@@ -32,6 +34,8 @@ class FilePolicy:
             max_file_size_mb=max_file_size_mb,
             exclude_url_patterns=tuple(options.get("exclude_url_patterns", [])),
             include_url_patterns=tuple(options.get("include_url_patterns", [])),
+            exclude_context_patterns=tuple(options.get("exclude_context_patterns", [])),
+            include_context_patterns=tuple(options.get("include_context_patterns", [])),
             skip_unknown_size=bool(options.get("skip_unknown_size", False)),
         )
 
@@ -42,15 +46,26 @@ class FilePolicy:
         final_url: str | None = None,
         content_length: int | None = None,
         content_type: str = "",
+        context: str = "",
     ) -> PolicyDecision:
         target = " ".join(part for part in [requested_url, final_url or "", content_type] if part)
-        include_matched = pattern_matches_any(target, self.include_url_patterns)
+        context_target = context.strip()
+        include_matched = pattern_matches_any(target, self.include_url_patterns) or pattern_matches_any(
+            context_target, self.include_context_patterns
+        )
         exclude_pattern = matching_pattern(target, self.exclude_url_patterns)
+        exclude_context_pattern = matching_pattern(context_target, self.exclude_context_patterns)
         if exclude_pattern and not include_matched:
             return PolicyDecision(
                 skip=True,
                 reason="excluded_url_pattern",
                 metadata={"pattern": exclude_pattern},
+            )
+        if exclude_context_pattern and not include_matched:
+            return PolicyDecision(
+                skip=True,
+                reason="excluded_context_pattern",
+                metadata={"pattern": exclude_context_pattern},
             )
         if self.include_url_patterns and not include_matched:
             return PolicyDecision(skip=True, reason="not_included_by_file_policy")

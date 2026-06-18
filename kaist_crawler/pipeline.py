@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import shutil
+from dataclasses import dataclass
 from pathlib import Path
 
 from .adapters import create_adapter
@@ -12,6 +13,13 @@ from .processor import process_raw_documents
 from .quality_gate import build_quality_gate_report, load_quality_gate_inputs, write_quality_gate_report
 from .store import RawStore
 from .vector_store import build_vector_store
+
+
+@dataclass(frozen=True)
+class RawCrawlResult:
+    files_written: int
+    files_reused: int
+    errors: list[dict]
 
 
 def run_crawl(
@@ -37,7 +45,7 @@ def run_crawl(
     if clean:
         clean_output(output_root, targets=("raw", "processed", "vector"))
 
-    _, crawl_errors = crawl_sources_raw(
+    raw_result = crawl_sources_raw(
         sources=sources,
         output_root=output_root,
         request_timeout_seconds=crawler_config.request_timeout_seconds,
@@ -47,7 +55,7 @@ def run_crawl(
         sources=sources,
         output_root=output_root,
         clean=False,
-        extra_errors=crawl_errors,
+        extra_errors=raw_result.errors,
         use_llm_relevance=use_llm_relevance,
         relevance_model=relevance_model,
         max_llm_relevance=max_llm_relevance,
@@ -71,7 +79,7 @@ def run_raw_crawl(
     output_root: str | Path,
     source_ids: set[str] | None = None,
     clean: bool = False,
-) -> tuple[int, list[dict]]:
+) -> RawCrawlResult:
     crawler_config = load_crawler_config(config_path, source_ids)
     output_root = Path(output_root)
     if clean:
@@ -111,7 +119,7 @@ def crawl_sources_raw(
     output_root: str | Path,
     request_timeout_seconds: int = 30,
     polite_delay_seconds: float = 0.0,
-) -> tuple[int, list[dict]]:
+) -> RawCrawlResult:
     client = HttpClient(timeout_seconds=request_timeout_seconds, delay_seconds=polite_delay_seconds)
     store = RawStore(output_root)
     errors: list[dict] = []
@@ -122,8 +130,9 @@ def crawl_sources_raw(
             errors.extend(adapter.errors)
     finally:
         raw_file_count = store.saved_count
+        reused_count = store.reused_count
         store.close()
-    return raw_file_count, errors
+    return RawCrawlResult(files_written=raw_file_count, files_reused=reused_count, errors=errors)
 
 
 def process_raw_data_from_sources(

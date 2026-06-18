@@ -135,102 +135,127 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     if args.command == "run":
-        selected = set(args.source) if args.source else None
-        documents, chunks = run_crawl(
-            config_path=args.config,
-            output_root=args.output,
-            source_ids=selected,
-            build_vectors=not args.skip_vector,
-            embedding_provider=args.embedding_provider,
-            embedding_model=args.embedding_model,
-            embedding_dimensions=args.embedding_dimensions,
-            embedding_batch_size=args.embedding_batch_size,
-            collection_name=args.collection,
-            include_non_candidates=args.include_non_candidates,
-            use_llm_relevance=args.use_llm_relevance,
-            relevance_model=args.relevance_model,
-            max_llm_relevance=args.max_llm_relevance,
-            clean=args.clean,
-        )
-        print(f"documents={len(documents)} chunks={len(chunks)} output={Path(args.output).resolve()}")
-        return 0
+        return handle_run(args)
     if args.command == "raw":
-        selected = set(args.source) if args.source else None
-        raw_file_count, errors = run_raw_crawl(
-            config_path=args.config,
-            output_root=args.output,
-            source_ids=selected,
-            clean=args.clean,
-        )
-        for error in errors:
-            print(json.dumps(error, ensure_ascii=False))
-        print(f"raw_files_written={raw_file_count} errors={len(errors)} output={Path(args.output, 'raw').resolve()}")
-        return 0
+        return handle_raw(args)
     if args.command == "process":
-        selected = set(args.source) if args.source else None
-        documents, chunks, errors, filtered = process_raw_data(
-            config_path=args.config,
-            output_root=args.output,
-            source_ids=selected,
-            clean=args.clean,
-            use_llm_relevance=args.use_llm_relevance,
-            relevance_model=args.relevance_model,
-            max_llm_relevance=args.max_llm_relevance,
-        )
-        for error in errors:
-            print(json.dumps(error, ensure_ascii=False))
-        relevance_sources = collections.Counter(
-            str(doc.metadata.get("relevance_source") or "missing") for doc in documents
-        )
-        vector_candidates = sum(1 for chunk in chunks if chunk.metadata.get("vector_candidate", True) is not False)
-        print(
-            f"documents={len(documents)} chunks={len(chunks)} "
-            f"vector_candidates={vector_candidates} errors={len(errors)} filtered={len(filtered)} "
-            f"relevance_sources={dict(relevance_sources)} output={Path(args.output, 'processed').resolve()}"
-        )
-        return 0
+        return handle_process(args)
     if args.command == "build-vector":
-        count = build_vectors_from_chunks(
-            args.input,
-            args.output,
-            embedding_provider=args.embedding_provider,
-            embedding_model=args.embedding_model,
-            embedding_dimensions=args.embedding_dimensions,
-            embedding_batch_size=args.embedding_batch_size,
-            collection_name=args.collection,
-            include_non_candidates=args.include_non_candidates,
-        )
-        print(f"chunks={count} vector_output={Path(args.output, 'vector').resolve()}")
-        return 0
+        return handle_build_vector(args)
     if args.command == "analyze-site":
-        analysis = analyze_site(
-            args.url,
-            source_id=args.id,
-            name=args.name,
-            max_routes=args.max_routes,
-            max_assets=args.max_assets,
-            fetch_assets=not args.no_fetch_assets,
-        )
-        output = analysis_to_json(analysis) if args.format == "json" else analysis_to_yaml(analysis)
-        if args.output:
-            output_path = Path(args.output)
-            output_path.parent.mkdir(parents=True, exist_ok=True)
-            output_path.write_text(output, encoding="utf-8")
-            print(f"analysis_output={output_path.resolve()}")
-        else:
-            print(output)
-        return 0
+        return handle_analyze_site(args)
     if args.command == "quality-gate":
-        selected = set(args.source) if args.source else None
-        report = build_quality_gate_from_processed(
-            output_root=args.output,
-            config_path=args.config,
-            source_ids=selected,
-        )
-        print(
-            f"quality_status={report['status']} score={report['score']} "
-            f"output={Path(args.output, 'processed').resolve()}"
-        )
-        return 0
+        return handle_quality_gate(args)
     parser.error("unknown command")
     return 2
+
+
+def selected_sources(args: argparse.Namespace) -> set[str] | None:
+    return set(args.source) if args.source else None
+
+
+def handle_run(args: argparse.Namespace) -> int:
+    documents, chunks = run_crawl(
+        config_path=args.config,
+        output_root=args.output,
+        source_ids=selected_sources(args),
+        build_vectors=not args.skip_vector,
+        embedding_provider=args.embedding_provider,
+        embedding_model=args.embedding_model,
+        embedding_dimensions=args.embedding_dimensions,
+        embedding_batch_size=args.embedding_batch_size,
+        collection_name=args.collection,
+        include_non_candidates=args.include_non_candidates,
+        use_llm_relevance=args.use_llm_relevance,
+        relevance_model=args.relevance_model,
+        max_llm_relevance=args.max_llm_relevance,
+        clean=args.clean,
+    )
+    print(f"documents={len(documents)} chunks={len(chunks)} output={Path(args.output).resolve()}")
+    return 0
+
+
+def handle_raw(args: argparse.Namespace) -> int:
+    raw_result = run_raw_crawl(
+        config_path=args.config,
+        output_root=args.output,
+        source_ids=selected_sources(args),
+        clean=args.clean,
+    )
+    for error in raw_result.errors:
+        print(json.dumps(error, ensure_ascii=False))
+    print(
+        f"raw_files_written={raw_result.files_written} raw_files_reused={raw_result.files_reused} "
+        f"errors={len(raw_result.errors)} output={Path(args.output, 'raw').resolve()}"
+    )
+    return 0
+
+
+def handle_process(args: argparse.Namespace) -> int:
+    documents, chunks, errors, filtered = process_raw_data(
+        config_path=args.config,
+        output_root=args.output,
+        source_ids=selected_sources(args),
+        clean=args.clean,
+        use_llm_relevance=args.use_llm_relevance,
+        relevance_model=args.relevance_model,
+        max_llm_relevance=args.max_llm_relevance,
+    )
+    for error in errors:
+        print(json.dumps(error, ensure_ascii=False))
+    relevance_sources = collections.Counter(str(doc.metadata.get("relevance_source") or "missing") for doc in documents)
+    vector_candidates = sum(1 for chunk in chunks if chunk.metadata.get("vector_candidate", True) is not False)
+    print(
+        f"documents={len(documents)} chunks={len(chunks)} "
+        f"vector_candidates={vector_candidates} errors={len(errors)} filtered={len(filtered)} "
+        f"relevance_sources={dict(relevance_sources)} output={Path(args.output, 'processed').resolve()}"
+    )
+    return 0
+
+
+def handle_build_vector(args: argparse.Namespace) -> int:
+    count = build_vectors_from_chunks(
+        args.input,
+        args.output,
+        embedding_provider=args.embedding_provider,
+        embedding_model=args.embedding_model,
+        embedding_dimensions=args.embedding_dimensions,
+        embedding_batch_size=args.embedding_batch_size,
+        collection_name=args.collection,
+        include_non_candidates=args.include_non_candidates,
+    )
+    print(f"chunks={count} vector_output={Path(args.output, 'vector').resolve()}")
+    return 0
+
+
+def handle_analyze_site(args: argparse.Namespace) -> int:
+    analysis = analyze_site(
+        args.url,
+        source_id=args.id,
+        name=args.name,
+        max_routes=args.max_routes,
+        max_assets=args.max_assets,
+        fetch_assets=not args.no_fetch_assets,
+    )
+    output = analysis_to_json(analysis) if args.format == "json" else analysis_to_yaml(analysis)
+    if args.output:
+        output_path = Path(args.output)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text(output, encoding="utf-8")
+        print(f"analysis_output={output_path.resolve()}")
+    else:
+        print(output)
+    return 0
+
+
+def handle_quality_gate(args: argparse.Namespace) -> int:
+    report = build_quality_gate_from_processed(
+        output_root=args.output,
+        config_path=args.config,
+        source_ids=selected_sources(args),
+    )
+    print(
+        f"quality_status={report['status']} score={report['score']} "
+        f"output={Path(args.output, 'processed').resolve()}"
+    )
+    return 0

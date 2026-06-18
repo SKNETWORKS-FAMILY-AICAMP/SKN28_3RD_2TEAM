@@ -21,6 +21,7 @@ defaults:
     provider: chroma
     path: data/vector/chroma
   raw:
+    reuse_existing_raw: true
     file_policy:
       max_file_size_mb: 30
       exclude_url_patterns:
@@ -30,6 +31,39 @@ defaults:
       - (?i)report
       - 소식지
       include_url_patterns: []
+      exclude_context_patterns:
+      - (?i)newsletter
+      - (?i)magazine
+      - (?i)seminar
+      - (?i)colloquium
+      - (?i)workshop
+      - (?i)job
+      - (?i)recruit
+      - (?i)old\s*exam
+      - (?i)past\s*exam
+      - 뉴스레터
+      - 소식지
+      - 세미나
+      - 콜로퀴움
+      - 워크숍
+      - 채용
+      - 기출
+      include_context_patterns:
+      - (?i)admission
+      - (?i)graduate
+      - (?i)curriculum
+      - (?i)course
+      - (?i)requirement
+      - (?i)scholarship
+      - (?i)tuition
+      - 입학
+      - 대학원
+      - 교과
+      - 교육과정
+      - 졸업
+      - 이수
+      - 장학
+      - 등록금
       skip_unknown_size: false
   processing:
     filter_policy:
