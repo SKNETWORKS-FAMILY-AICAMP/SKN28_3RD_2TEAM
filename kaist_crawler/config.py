@@ -31,6 +31,12 @@ SOURCE_KEYS = {
     "name",
     "base_url",
     "adapter",
+    "institution",
+    "institution_name",
+    "college",
+    "college_name",
+    "dept",
+    "dept_name",
     "routes",
     "known_files",
     "dynamic_routes",
@@ -142,6 +148,10 @@ def validate_source_config(source: Any, *, index: int, seen_ids: set[str]) -> No
         value = source.get(key)
         if not isinstance(value, str) or not value.strip():
             raise ValueError(f"sources[{index}].{key} must be a non-empty string")
+
+    for key in ("institution", "institution_name", "college", "college_name", "dept", "dept_name"):
+        if key in source and not isinstance(source[key], str):
+            raise ValueError(f"{source['id']}.{key} must be a string")
 
     source_id = source["id"]
     if source_id in seen_ids:

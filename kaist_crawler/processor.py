@@ -104,7 +104,7 @@ def process_raw_documents(
             title=f"{source.name} SPA bundle text",
             text="\n\n".join(texts),
             raw_path=None,
-            metadata={"document_type": "spa_bundle_text"},
+            metadata=source_scope_metadata(source, {"document_type": "spa_bundle_text"}),
         )
 
     documents, document_filter_events = filter_documents(documents, policy_by_site)
@@ -173,7 +173,7 @@ def process_html_record(
     record: RawRecord,
     raw_path: Path,
 ) -> None:
-    metadata = dict(record.metadata)
+    metadata = source_scope_metadata(source, record.metadata)
     document_type = html_document_type(source, metadata)
     if document_type is None:
         return
@@ -222,7 +222,7 @@ def process_sheet_record(
             title=f"{source.name} {sheet_name} sheet",
             text=sheet_rows_to_text(rows),
             raw_path=str(raw_path.as_posix()),
-            metadata={"document_type": "google_sheet", "sheet": sheet_name},
+            metadata=source_scope_metadata(source, {"document_type": "google_sheet", "sheet": sheet_name}),
         )
     add_sheet_row_documents(documents, source=source, record=record, raw_path=raw_path, sheet_name=sheet_name, rows=rows)
 
@@ -249,14 +249,17 @@ def process_pdf_record(
                 title=file_name,
                 text=page_text,
                 raw_path=str(raw_path.as_posix()),
-                metadata={
-                    "document_type": "pdf",
-                    "pdf_extractor": pdf_result.extractor,
-                    "pdf_pages": pdf_result.pages,
-                    "page": page_index,
-                    "section": infer_section_title(page_text, fallback=file_name),
-                    "file_name": file_name,
-                },
+                metadata=source_scope_metadata(
+                    source,
+                    {
+                        "document_type": "pdf",
+                        "pdf_extractor": pdf_result.extractor,
+                        "pdf_pages": pdf_result.pages,
+                        "page": page_index,
+                        "section": infer_section_title(page_text, fallback=file_name),
+                        "file_name": file_name,
+                    },
+                ),
             )
     elif pdf_result.error:
         errors.append(
@@ -292,8 +295,25 @@ def add_sheet_row_documents(
             title=document.title,
             text=document.text,
             raw_path=document.raw_path,
-            metadata=document.metadata,
+            metadata=source_scope_metadata(source, document.metadata),
         )
+
+
+def source_scope_metadata(source: SourceConfig, metadata: dict | None = None) -> dict:
+    result = dict(metadata or {})
+    if source.institution:
+        result.setdefault("institution", source.institution)
+    if source.institution_name:
+        result.setdefault("institution_name", source.institution_name)
+    if source.college:
+        result.setdefault("college", source.college)
+    if source.college_name:
+        result.setdefault("college_name", source.college_name)
+    if source.dept:
+        result.setdefault("dept", source.dept)
+    if source.dept_name:
+        result.setdefault("dept_name", source.dept_name)
+    return result
 
 
 def add_document(

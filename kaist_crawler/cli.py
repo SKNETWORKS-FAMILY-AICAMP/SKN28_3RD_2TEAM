@@ -4,9 +4,20 @@ import argparse
 import json
 from pathlib import Path
 
-from .pipeline import build_vectors_from_chunks, process_raw_data, run_crawl, run_raw_crawl
+from .pipeline import (
+    build_quality_gate_from_processed,
+    build_vectors_from_chunks,
+    process_raw_data,
+    run_crawl,
+    run_raw_crawl,
+)
 from .site_analyzer import analysis_to_json, analysis_to_yaml, analyze_site
 from .vector_store import DEFAULT_OPENAI_EMBEDDING_MODEL
+
+
+DEFAULT_CONFIG = "configs/kaist_sources.yml"
+DEFAULT_OUTPUT = "data/kaist"
+DEFAULT_CHUNKS_INPUT = "data/kaist/processed/chunks.jsonl"
 
 
 def add_embedding_args(parser: argparse.ArgumentParser) -> None:
@@ -45,28 +56,28 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     run = subparsers.add_parser("run", help="collect raw data, extract text, chunk, and build vectors")
-    run.add_argument("--config", default="configs/kaist_ai_sources.yml", help="source YAML config")
-    run.add_argument("--output", default="data", help="output data directory")
+    run.add_argument("--config", default=DEFAULT_CONFIG, help="source YAML config")
+    run.add_argument("--output", default=DEFAULT_OUTPUT, help="output data directory")
     run.add_argument("--source", action="append", default=[], help="source id to crawl; can be repeated")
     run.add_argument("--skip-vector", action="store_true", help="skip vector-store build")
     run.add_argument("--clean", action="store_true", help="delete raw, processed, and vector output before running")
     add_embedding_args(run)
 
     raw = subparsers.add_parser("raw", help="collect raw data only")
-    raw.add_argument("--config", default="configs/kaist_ai_sources.yml", help="source YAML config")
-    raw.add_argument("--output", default="data", help="output data directory")
+    raw.add_argument("--config", default=DEFAULT_CONFIG, help="source YAML config")
+    raw.add_argument("--output", default=DEFAULT_OUTPUT, help="output data directory")
     raw.add_argument("--source", action="append", default=[], help="source id to crawl; can be repeated")
     raw.add_argument("--clean", action="store_true", help="delete raw output before crawling")
 
     process = subparsers.add_parser("process", help="extract documents and chunks from existing raw data")
-    process.add_argument("--config", default="configs/kaist_ai_sources.yml", help="source YAML config")
-    process.add_argument("--output", default="data", help="output data directory")
+    process.add_argument("--config", default=DEFAULT_CONFIG, help="source YAML config")
+    process.add_argument("--output", default=DEFAULT_OUTPUT, help="output data directory")
     process.add_argument("--source", action="append", default=[], help="source id to process; can be repeated")
     process.add_argument("--clean", action="store_true", help="delete processed output before processing")
 
     build = subparsers.add_parser("build-vector", help="build vector store from processed chunks")
-    build.add_argument("--input", default="data/processed/chunks.jsonl", help="chunks JSONL path")
-    build.add_argument("--output", default="data", help="output data directory")
+    build.add_argument("--input", default=DEFAULT_CHUNKS_INPUT, help="chunks JSONL path")
+    build.add_argument("--output", default=DEFAULT_OUTPUT, help="output data directory")
     add_embedding_args(build)
 
     analyze = subparsers.add_parser("analyze-site", help="analyze a school site and recommend a source config")
@@ -78,6 +89,11 @@ def build_parser() -> argparse.ArgumentParser:
     analyze.add_argument("--max-routes", type=int, default=24, help="maximum recommended routes")
     analyze.add_argument("--max-assets", type=int, default=5, help="maximum JS/CSS assets to inspect")
     analyze.add_argument("--no-fetch-assets", action="store_true", help="skip JS/CSS asset inspection")
+
+    quality = subparsers.add_parser("quality-gate", help="evaluate processed documents/chunks before vector storage")
+    quality.add_argument("--config", default=DEFAULT_CONFIG, help="optional source YAML config")
+    quality.add_argument("--output", default=DEFAULT_OUTPUT, help="output data directory containing processed JSONL files")
+    quality.add_argument("--source", action="append", default=[], help="source id to evaluate; can be repeated")
 
     return parser
 
@@ -157,6 +173,18 @@ def main(argv: list[str] | None = None) -> int:
             print(f"analysis_output={output_path.resolve()}")
         else:
             print(output)
+        return 0
+    if args.command == "quality-gate":
+        selected = set(args.source) if args.source else None
+        report = build_quality_gate_from_processed(
+            output_root=args.output,
+            config_path=args.config,
+            source_ids=selected,
+        )
+        print(
+            f"quality_status={report['status']} score={report['score']} "
+            f"output={Path(args.output, 'processed').resolve()}"
+        )
         return 0
     parser.error("unknown command")
     return 2

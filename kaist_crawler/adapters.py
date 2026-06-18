@@ -91,6 +91,26 @@ class BaseAdapter:
         self._downloaded_urls.add(absolute)
 
         policy = self.file_policy
+        parsed = urlparse(absolute)
+        if parsed.scheme not in {"http", "https"}:
+            self._record_skipped_file(
+                url=absolute,
+                final_url=None,
+                reason="unsupported_url_scheme",
+                metadata={"scheme": parsed.scheme},
+            )
+            return
+
+        decision = policy.evaluate(requested_url=absolute)
+        if decision.skip:
+            self._record_skipped_file(
+                url=absolute,
+                final_url=None,
+                reason=decision.reason,
+                metadata=decision.metadata,
+            )
+            return
+
         try:
             head_result = self.client.head(absolute)
             decision = policy.evaluate(
@@ -183,6 +203,31 @@ class BaseAdapter:
         for file_ref in self.source.known_files:
             self.download_file(file_ref)
 
+    def _same_origin_file_links(self, base_url: str, content: str) -> list[str]:
+        soup = BeautifulSoup(content, "html.parser")
+        origin = urlparse(self.source.base_url).netloc
+        options = self.crawl_options
+        allowed_netlocs = {origin, *options.get("domain_aliases", [])}
+        links: list[str] = []
+        file_tags = soup.find_all(["a", "link", "script"], href=True)
+        file_tags.extend(soup.find_all(["a", "link", "script"], src=True))
+        for tag in file_tags:
+            href = str(tag.get("href") or tag.get("src") or "").strip()
+            if not href:
+                continue
+            url = urljoin(base_url, href)
+            parsed = urlparse(url)
+            if parsed.scheme not in {"http", "https"}:
+                continue
+            if parsed.netloc not in allowed_netlocs:
+                continue
+            if Path(parsed.path).suffix.lower() not in FILE_EXTENSIONS:
+                continue
+            clean = parsed._replace(fragment="").geturl()
+            if clean not in links:
+                links.append(clean)
+        return links
+
     def record_error(self, *, stage: str, url: str, error: Exception, metadata: dict | None = None) -> None:
         self.errors.append(
             {
@@ -221,8 +266,8 @@ class StaticHtmlAdapter(BaseAdapter):
             for linked_page in linked_pages:
                 if linked_page not in page_urls:
                     page_urls.append(linked_page)
-            for file_ref in extract_file_refs(result.text):
-                self.download_file(urljoin(result.final_url, file_ref))
+            for file_url in self._same_origin_file_links(result.final_url, result.text):
+                self.download_file(file_url)
         self.download_known_files()
 
     def _same_origin_html_links(self, base_url: str, content: str) -> list[str]:
@@ -249,6 +294,8 @@ class StaticHtmlAdapter(BaseAdapter):
             if parsed.netloc not in allowed_netlocs:
                 continue
             if parsed.path.rstrip("/").rsplit("/", 1)[-1].startswith("@"):
+                continue
+            if is_download_endpoint(parsed.path):
                 continue
             if include_prefixes and not parsed.path.startswith(include_prefixes):
                 continue
@@ -369,8 +416,8 @@ class ViteReactSpaAdapter(BaseAdapter):
                 filename_hint=f"{route_to_filename(route)}_rendered.html",
                 metadata={"route": route, "rendered": True, "renderer": "playwright"},
             )
-            for file_ref in extract_file_refs(rendered.html):
-                self.download_file(urljoin(rendered.url, file_ref))
+            for file_url in self._same_origin_file_links(rendered.url, rendered.html):
+                self.download_file(file_url)
             self._collected_route_urls.add(route_url)
             return True
         except Exception as exc:
@@ -462,6 +509,24 @@ class FxSheetsSpaAdapter(ViteReactSpaAdapter):
 def route_to_filename(route: str) -> str:
     route = route.strip("/") or "index"
     return re.sub(r"[^A-Za-z0-9_.-]+", "_", route).strip("._") or "route"
+
+
+FILE_EXTENSIONS = {
+    ".pdf",
+    ".hwp",
+    ".hwpx",
+    ".doc",
+    ".docx",
+    ".ppt",
+    ".pptx",
+    ".xls",
+    ".xlsx",
+}
+
+
+def is_download_endpoint(path: str) -> bool:
+    lowered = path.lower()
+    return any(part in lowered for part in ("/file_down/", "/download/", "/downloads/", "/attachment/"))
 
 
 def parse_google_sheet_source(source_ref: object) -> tuple[str, str] | None:

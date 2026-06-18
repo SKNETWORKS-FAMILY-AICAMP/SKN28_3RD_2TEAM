@@ -48,6 +48,23 @@ errors=7
 filtered=1574
 ```
 
+Quality Gate:
+
+```text
+status=warn
+score=71
+```
+
+사이트별 Quality Gate:
+
+| site | status | score | 주요 경고 |
+| --- | --- | ---: | --- |
+| `kaist_natsci` | `pass` | 85 | `general` 비율 높음 |
+| `kaist_physics` | `pass` | 95 | 짧은 문서 필터링 많음 |
+| `kaist_mathsci` | `warn` | 71 | PDF chunk 비율 80%, PDF 텍스트 추출 오류 7건 |
+| `kaist_chem` | `pass` | 95 | 짧은 문서 필터링 많음 |
+| `kaist_quantum` | `pass` | 95 | 짧은 문서 필터링 많음 |
+
 chunk 분포:
 
 | site | chunks |

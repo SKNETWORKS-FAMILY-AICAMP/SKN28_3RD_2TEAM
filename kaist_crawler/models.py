@@ -10,6 +10,12 @@ class SourceConfig:
     name: str
     base_url: str
     adapter: str
+    institution: str = ""
+    institution_name: str = ""
+    college: str = ""
+    college_name: str = ""
+    dept: str = ""
+    dept_name: str = ""
     routes: list[str] = field(default_factory=list)
     known_files: list[str] = field(default_factory=list)
     dynamic_routes: dict[str, Any] = field(default_factory=dict)
@@ -24,6 +30,12 @@ class SourceConfig:
             name=raw["name"],
             base_url=raw["base_url"],
             adapter=raw["adapter"],
+            institution=str(raw.get("institution", "")),
+            institution_name=str(raw.get("institution_name", "")),
+            college=str(raw.get("college", "")),
+            college_name=str(raw.get("college_name", "")),
+            dept=str(raw.get("dept", "")),
+            dept_name=str(raw.get("dept_name", "")),
             routes=list(raw.get("routes", [])),
             known_files=list(raw.get("known_files", [])),
             dynamic_routes=dict(raw.get("dynamic_routes", {})),

@@ -8,6 +8,29 @@ adapter: static_html
 confidence: 0.87
 routes:
 - /
+- /index.php?mid=p_news_event1
+- /index.php?mid=p_news_event1&document_srl=20258
+- /index.php?mid=p_news_event2
+- /index.php?mid=p_news_event3
+- /index.php?mid=p_news_event4
+- /index.php?mid=p_news_event5
+- /index.php?mid=p_news_event6
+- /index.php?mid=p_aboutus5
+- /index.php?mid=p_people1&category=193
+- /index.php?mid=p_academic4
+- /index.php?document_srl=20306
+- /index.php?document_srl=20239
+- /index.php?document_srl=20290
+- /index.php?document_srl=20288
+- /index.php?document_srl=20278
+- /index.php?document_srl=20234
+- /index.php?document_srl=20230
+- /index.php?document_srl=20199
+- /index.php?document_srl=20258
+- /index.php?mid=video_board
+- /index.php?mid=p_aboutus1
+- /index.php?mid=p_aboutus3
+- /index.php?mid=p_aboutus4
 known_files: []
 robots_url: https://physics.kaist.ac.kr/robots.txt
 robots_status: valid
@@ -18,14 +41,26 @@ dynamic_routes: {}
 raw:
   max_pages: 80
   follow_html_links: true
+  file_policy:
+    max_file_size_mb: 30
+    exclude_url_patterns:
+    - (?i)newsletter
+    - (?i)magazine
+    - (?i)annual
+    - (?i)report
+    include_url_patterns: []
+    skip_unknown_size: false
 crawl_notes:
 - Detected site_type=static_html, adapter=static_html, confidence=0.87.
-- Recommended 1 initial route(s) and 0 known file(s).
+- Recommended 24 initial route(s) and 0 known file(s).
 - Use static HTML crawling with bounded same-origin link following.
+- SiteProfile cms_type=xe_php_board, url_patterns=extensionless_routes, query_routes,
+  xe_php_board_query, asset_linked.
+- CrawlPlan prioritizes 24 seed route(s) and 0 file candidate(s).
+- Preserve query params for mid, document_srl board routes.
+- Apply low-value file filters before PDF/text processing.
 risks:
 - sitemap status is missing_or_unreachable; do not rely on sitemap-only crawling.
-- Few relevant routes were discovered; inspect menus or add routes manually before
-  crawling.
 evidence:
   visible_text_chars: 3259
   asset_count: 7
@@ -35,20 +70,203 @@ evidence:
   google_sheet_count: 0
   spa_score: 2
   static_score: 4
+site_profile:
+  source_id: kaist_physics
+  name: KAIST Department of Physics
+  base_url: https://physics.kaist.ac.kr/
+  final_url: https://physics.kaist.ac.kr/
+  title: Physics
+  site_type: static_html
+  adapter: static_html
+  confidence: 0.87
+  cms_type: xe_php_board
+  url_patterns:
+  - extensionless_routes
+  - query_routes
+  - xe_php_board_query
+  - asset_linked
+  route_candidates:
+  - /
+  - /index.php?mid=p_news_event1
+  - /index.php?mid=p_news_event1&document_srl=20258
+  - /index.php?mid=p_news_event2
+  - /index.php?mid=p_news_event3
+  - /index.php?mid=p_news_event4
+  - /index.php?mid=p_news_event5
+  - /index.php?mid=p_news_event6
+  - /index.php?mid=p_aboutus5
+  - /index.php?mid=p_people1&category=193
+  - /index.php?mid=p_academic4
+  - /index.php?document_srl=20306
+  - /index.php?document_srl=20239
+  - /index.php?document_srl=20290
+  - /index.php?document_srl=20288
+  - /index.php?document_srl=20278
+  - /index.php?document_srl=20234
+  - /index.php?document_srl=20230
+  - /index.php?document_srl=20199
+  - /index.php?document_srl=20258
+  - /index.php?mid=video_board
+  - /index.php?mid=p_aboutus1
+  - /index.php?mid=p_aboutus3
+  - /index.php?mid=p_aboutus4
+  file_candidates: []
+  google_sheet_ids: []
+  robots_status: valid
+  sitemap_status: missing_or_unreachable
+  risks:
+  - sitemap status is missing_or_unreachable; do not rely on sitemap-only crawling.
+  evidence:
+    visible_text_chars: 3259
+    asset_count: 7
+    fetched_asset_text_count: 5
+    module_script_count: 0
+    app_root_count: 0
+    google_sheet_count: 0
+    spa_score: 2
+    static_score: 4
+crawl_plan:
+  source_id: kaist_physics
+  name: KAIST Department of Physics
+  base_url: https://physics.kaist.ac.kr/
+  adapter: static_html
+  routes:
+  - /
+  - /index.php?mid=p_news_event1
+  - /index.php?mid=p_news_event1&document_srl=20258
+  - /index.php?mid=p_news_event2
+  - /index.php?mid=p_news_event3
+  - /index.php?mid=p_news_event4
+  - /index.php?mid=p_news_event5
+  - /index.php?mid=p_news_event6
+  - /index.php?mid=p_aboutus5
+  - /index.php?mid=p_people1&category=193
+  - /index.php?mid=p_academic4
+  - /index.php?document_srl=20306
+  - /index.php?document_srl=20239
+  - /index.php?document_srl=20290
+  - /index.php?document_srl=20288
+  - /index.php?document_srl=20278
+  - /index.php?document_srl=20234
+  - /index.php?document_srl=20230
+  - /index.php?document_srl=20199
+  - /index.php?document_srl=20258
+  - /index.php?mid=video_board
+  - /index.php?mid=p_aboutus1
+  - /index.php?mid=p_aboutus3
+  - /index.php?mid=p_aboutus4
+  known_files: []
+  raw_options:
+    max_pages: 80
+    follow_html_links: true
+    file_policy:
+      max_file_size_mb: 30
+      exclude_url_patterns:
+      - (?i)newsletter
+      - (?i)magazine
+      - (?i)annual
+      - (?i)report
+      include_url_patterns: []
+      skip_unknown_size: false
+  processing_options:
+    filter_policy:
+      exclude_pdf_url_patterns:
+      - (?i)newsletter
+      - (?i)magazine
+      - (?i)annual
+      - (?i)report
+  route_policy:
+    follow_html_links: true
+    preserve_query_for:
+    - mid
+    - document_srl
+    exclude_path_prefixes: []
+    exclude_path_suffixes:
+    - .png
+    - .jpg
+    - .jpeg
+    - .gif
+    - .svg
+    - .ico
+    - .css
+    - .js
+  file_policy:
+    max_file_size_mb: 30
+    exclude_url_patterns:
+    - (?i)newsletter
+    - (?i)magazine
+    - (?i)annual
+    - (?i)report
+    include_url_patterns: []
+    skip_unknown_size: false
+  priority_sections:
+  - faculty
+  - admission
+  - curriculum
+  - degree_requirement
+  - scholarship
+  - notice
+  - seminar
+  - research_highlight
+  notes:
+  - SiteProfile cms_type=xe_php_board, url_patterns=extensionless_routes, query_routes,
+    xe_php_board_query, asset_linked.
+  - CrawlPlan prioritizes 24 seed route(s) and 0 file candidate(s).
+  - Preserve query params for mid, document_srl board routes.
+  - Apply low-value file filters before PDF/text processing.
+  risks:
+  - sitemap status is missing_or_unreachable; do not rely on sitemap-only crawling.
 recommended_source:
   id: kaist_physics
   name: KAIST Department of Physics
   base_url: https://physics.kaist.ac.kr/
   adapter: static_html
-  robots_url: https://physics.kaist.ac.kr/robots.txt
-  sitemap_status: missing_or_unreachable
   routes:
   - /
+  - /index.php?mid=p_news_event1
+  - /index.php?mid=p_news_event1&document_srl=20258
+  - /index.php?mid=p_news_event2
+  - /index.php?mid=p_news_event3
+  - /index.php?mid=p_news_event4
+  - /index.php?mid=p_news_event5
+  - /index.php?mid=p_news_event6
+  - /index.php?mid=p_aboutus5
+  - /index.php?mid=p_people1&category=193
+  - /index.php?mid=p_academic4
+  - /index.php?document_srl=20306
+  - /index.php?document_srl=20239
+  - /index.php?document_srl=20290
+  - /index.php?document_srl=20288
+  - /index.php?document_srl=20278
+  - /index.php?document_srl=20234
+  - /index.php?document_srl=20230
+  - /index.php?document_srl=20199
+  - /index.php?document_srl=20258
+  - /index.php?mid=video_board
+  - /index.php?mid=p_aboutus1
+  - /index.php?mid=p_aboutus3
+  - /index.php?mid=p_aboutus4
   known_files: []
   crawl_notes:
-  - Detected site_type=static_html, adapter=static_html, confidence=0.87.
-  - Recommended 1 initial route(s) and 0 known file(s).
-  - Use static HTML crawling with bounded same-origin link following.
+  - SiteProfile cms_type=xe_php_board, url_patterns=extensionless_routes, query_routes,
+    xe_php_board_query, asset_linked.
+  - CrawlPlan prioritizes 24 seed route(s) and 0 file candidate(s).
+  - Preserve query params for mid, document_srl board routes.
+  - Apply low-value file filters before PDF/text processing.
   raw:
     max_pages: 80
     follow_html_links: true
+    file_policy:
+      max_file_size_mb: 30
+      exclude_url_patterns: &id001
+      - (?i)newsletter
+      - (?i)magazine
+      - (?i)annual
+      - (?i)report
+      include_url_patterns: []
+      skip_unknown_size: false
+  robots_url: https://physics.kaist.ac.kr/robots.txt
+  sitemap_status: missing_or_unreachable
+  processing:
+    filter_policy:
+      exclude_pdf_url_patterns: *id001

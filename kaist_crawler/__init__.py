@@ -1,4 +1,4 @@
-"""KAIST College of AI crawling pipeline."""
+"""Graduate school crawling pipeline."""
 
 __all__ = ["__version__"]
 

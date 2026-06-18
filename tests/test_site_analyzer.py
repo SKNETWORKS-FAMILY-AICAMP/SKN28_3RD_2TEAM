@@ -92,7 +92,39 @@ class SiteAnalyzerTests(unittest.TestCase):
         self.assertIn("/faculty.html", analysis.routes)
         self.assertNotIn("/files/admission-guide.pdf", analysis.routes)
         self.assertIn("https://grad.example.edu/files/admission-guide.pdf", analysis.known_files)
+        self.assertIsNotNone(analysis.site_profile)
+        self.assertIsNotNone(analysis.crawl_plan)
+        self.assertEqual(analysis.site_profile.cms_type, "generic")
+        self.assertIn("file_policy", source["raw"])
         build_crawler_config({"version": 1, "sources": [source]})
+
+    def test_query_board_routes_are_preserved_in_crawl_plan(self) -> None:
+        root = "https://physics.example.edu/"
+        html = """
+        <html>
+          <head><title>Physics</title></head>
+          <body>
+            <a href="/index.php?mid=Account&act=dispMemberLoginForm">LOGIN</a>
+            <a href="/index.php?mid=p_academic4">Graduate admission</a>
+            <a href="/index.php?document_srl=123">Notice detail</a>
+            <main>Physics graduate admission faculty seminar curriculum.</main>
+          </body>
+        </html>
+        """
+        client = FakeClient(
+            {
+                root: response(root, html),
+                "https://physics.example.edu/robots.txt": response(root + "robots.txt", "User-agent: *\n", "text/plain"),
+                "https://physics.example.edu/sitemap.xml": response(root + "sitemap.xml", "<html></html>", "text/html"),
+            }
+        )
+
+        analysis = analyze_site(root, client=client)
+
+        self.assertIn("/index.php?mid=p_academic4", analysis.routes)
+        self.assertNotIn("/index.php?mid=Account&act=dispMemberLoginForm", analysis.routes)
+        self.assertIn("query_routes", analysis.site_profile.url_patterns)
+        self.assertIn("mid", analysis.crawl_plan.route_policy["preserve_query_for"])
 
     def test_spa_with_google_sheets_recommends_spa_sheet_adapter(self) -> None:
         root = "https://ai.example.edu/"

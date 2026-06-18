@@ -14,6 +14,211 @@
 
 ## 2026-06-17
 
+### 변경 - 재수집 오류 감소와 AI College fallback 수집 개선
+- 정적 HTML 수집에서 본문 텍스트에 적힌 `test.hwp`, `guide.pdf` 같은 파일명을 첨부 링크로 오인하지 않도록, HTML `href/src` 속성의 실제 파일 링크만 다운로드 후보로 사용하게 변경했다.
+- `/file_down/`, `/download/`, `/downloads/`, `/attachment/` 계열 URL은 HTML 페이지 후보에서 제외했다.
+- raw file policy를 HEAD/GET 요청 전에 먼저 적용하도록 변경해 `oldexam`, newsletter 등 제외 대상 파일에 불필요한 네트워크 요청을 하지 않게 했다.
+- `file://` 같은 비 HTTP URL은 오류가 아니라 `unsupported_url_scheme` skip으로 기록하게 했다.
+- Playwright 렌더링에서 `page.content()`가 navigation 중 오류를 내는 경우 body text 기반 synthetic HTML fallback을 시도하도록 보강했다.
+- SPA route 렌더링 설정을 `commit`, 30초 timeout, 3초 후대기, 첫 route 실패 후 중단하지 않는 방식으로 조정했다.
+- AI College는 headless 렌더링이 `wfrd.kaist.ac.kr/KA14.php`로 이동하는 경우가 있어, `spa_bundle_text`를 전처리 fallback 문서로 허용했다.
+- JS literal 추출에서 Tailwind/class/template 문자열 노이즈를 더 강하게 제외했다.
+
+### 이유
+- 첨부파일명이 본문에 텍스트로만 등장하는 경우를 다운로드 링크로 오인해 403/404 raw 오류가 대량 발생했다.
+- 수학과 old exam류 PDF는 이미 정책상 제외 대상인데, HEAD 실패 뒤 GET까지 진행되어 불필요한 오류가 생겼다.
+- AI College는 headless browser에서 일부 route가 정상 DOM 렌더링되지 않아 0 chunk 상태였으므로, RAG 품질을 위해 bundle text fallback이 필요했다.
+
+### 검증
+```powershell
+python -B -m unittest discover -s tests
+python -m kaist_crawler raw --config configs\kaist_sources.yml --output data\kaist --clean
+python -B -m kaist_crawler process --config configs\kaist_sources.yml --output data\kaist --clean
+python -B -m kaist_crawler quality-gate --config configs\kaist_sources.yml --output data\kaist
+```
+
+결과:
+
+```text
+tests=35 OK
+raw_files_written=697
+raw_errors=14
+documents=1247
+chunks=2750
+process_errors=5
+filtered=2638
+quality_status=warn
+quality_score=60
+kaist_ai_college chunks=26
+kaist_mathsci status=warn chunks=1847
+```
+
+개선 전 재수집 로그는 `raw_errors=76`, `quality_status=fail`, `quality_score=30`, `kaist_ai_college chunks=0`이었다.
+
+남은 품질 이슈:
+
+- `kaist_mathsci`: PDF chunk 비율 85%, general content 비율 48%, PDF 텍스트 추출 오류 5건.
+- 일부 SPA route는 headless 환경에서 여전히 navigation 오류가 있으나 bundle/PDF fallback으로 최소 수집은 가능하다.
+
+### 변경 - 프로젝트 폴더 정리
+- 현재 운영 데이터는 `data/kaist`만 사용하도록 폴더 구조를 정리했다.
+- 이전 실험 산출물 `data/raw`, `data/processed`, `data/vector`, `data/natural_sciences`를 삭제하지 않고 `data/_archive_legacy` 아래로 이동했다.
+- 재생성 가능한 캐시/임시 폴더 `.test_tmp`, `kaist_crawler/__pycache__`, `scripts/__pycache__`, `tests/__pycache__`를 삭제했다.
+- README의 폴더 구조와 출력 구조를 현재 통합 저장 기준인 `data/kaist`에 맞게 수정했다.
+
+### 이유
+- AI 대학/자연과학대학 통합 이후 예전 분리 산출물이 같은 `data` 루트에 남아 있으면 어떤 데이터를 기준으로 전처리/벡터 저장해야 하는지 헷갈린다.
+- 과거 산출물은 비교가 필요할 수 있어 바로 삭제하지 않고 archive로 보관했다.
+- Python bytecode cache와 임시 테스트 폴더는 재생성 가능하므로 프로젝트 구조를 단순하게 만들기 위해 제거했다.
+
+### 검증
+```powershell
+python -B -m unittest discover -s tests
+python -B -m kaist_crawler quality-gate --config configs\kaist_sources.yml --output data\kaist
+```
+
+결과:
+
+```text
+tests=32 OK
+quality_status=fail score=30
+```
+
+정리 후 구조:
+
+```text
+data/
+  kaist/
+  _archive_legacy/
+```
+
+### 변경 - config 기반 학과 metadata와 CLI 기본값 일반화
+- `SourceConfig`에 `dept`, `dept_name` 필드를 추가하고 config 검증 대상에 포함했다.
+- `source_scope_metadata`가 `institution`, `college`뿐 아니라 `dept`, `dept_name`도 전처리 문서 metadata에 주입하도록 변경했다.
+- `rag_metadata.py`에서 `kaist_ai_college`, `kaist_main_kr`, `kaist_` prefix에 대한 기능 하드코딩을 제거했다.
+- 문서의 학과 구분은 source id 특수 분기가 아니라 config의 `dept/dept_name`을 우선 사용하고, 없을 때만 `institution`/`college` prefix 기반 일반 fallback을 사용하도록 했다.
+- `configs/kaist_sources.yml`, `configs/kaist_ai_sources.yml`, `configs/kaist_natural_sciences_sources.yml`의 각 source에 명시적인 `dept`, `dept_name`을 추가했다.
+- CLI 기본 config/output/chunks 경로를 통합 기준인 `configs/kaist_sources.yml`, `data/kaist`, `data/kaist/processed/chunks.jsonl`로 변경했다.
+- README의 vector build 예시 경로를 `data/kaist` 기준으로 수정했다.
+
+### 이유
+- 다른 대학원 사이트로 확장할 때 코드가 특정 KAIST source id를 보고 학과를 결정하면 metadata filter 품질이 흔들린다.
+- source별 기관/단과대/학과 구분은 코드가 아니라 config가 책임지는 편이 재수집, 전처리, Chroma metadata filter까지 일관된다.
+- 기본 CLI가 AI 전용 config를 바라보면 통합 수집 이후에도 실수로 일부 source만 처리할 수 있다.
+
+### 검증
+```powershell
+python -m unittest discover -s tests
+python -m compileall -q kaist_crawler tests
+python -m kaist_crawler process --config configs\kaist_sources.yml --output data\kaist --clean
+python -m kaist_crawler quality-gate --config configs\kaist_sources.yml --output data\kaist
+```
+
+결과:
+
+```text
+tests=32 OK
+documents=942
+chunks=2080
+errors=4
+filtered=2488
+institution kaist=2080
+college ai=185, natural_sciences=1895
+dept aic=40, ai_systems=33, ax=18, fx=50, kaist=44, natsci=161, physics=193, mathsci=1243, chem=152, quantum=146
+quality_status=fail score=30
+```
+
+남은 품질 이슈:
+
+- `kaist_ai_college`: chunk 0개. SPA 렌더링/텍스트 추출 보강이 필요하다.
+- `kaist_mathsci`: PDF chunk 비율 80%, PDF 텍스트 추출 오류 4건. 수학과 PDF 필터와 스캔 PDF 처리 정책을 더 다듬어야 한다.
+
+### 변경 - KAIST 통합 저장 및 크롤링 전략
+- AI 대학과 자연과학대학을 별도 프로젝트가 아니라 같은 KAIST 기관 아래의 단과대/학과 source group으로 보도록 통합했다.
+- `SourceConfig`에 `institution`, `institution_name`, `college`, `college_name` 필드를 추가했다.
+- `configs/kaist_ai_sources.yml`, `configs/kaist_natural_sciences_sources.yml`에 공통 `institution=kaist`와 단과대 구분용 `college=ai|natural_sciences`를 추가했다.
+- AI 대학 6개 source와 자연과학대학 5개 source를 합친 통합 config `configs/kaist_sources.yml`를 추가했다.
+- 기존 AI raw와 자연과학 raw를 `data/kaist/raw`로 합치고, manifest의 `raw_path`를 `data/kaist/raw/...` 기준으로 정규화했다.
+- 전처리 단계에서 HTML, PDF, sheet row, SPA bundle text 문서 metadata에 기관/단과대 scope가 유지되도록 `source_scope_metadata`를 추가했다.
+- 통합 운영 문서 `docs/kaist-unified-storage-and-crawl-strategy.md`를 추가했다.
+- README의 기본 명령을 KAIST 통합 config와 `data/kaist` 출력 기준으로 갱신했다.
+
+### 이유
+- AI 대학과 자연과학대학은 모두 KAIST 내부 데이터이므로 저장 루트와 수집 정책의 상위 기준은 `kaist`로 같게 두는 편이 RAG 필터링과 확장에 유리하다.
+- 단과대 차이는 별도 저장소가 아니라 metadata의 `college`로 구분해야 Chroma metadata filter에서 `institution=kaist`, `college=ai`, `college=natural_sciences` 같은 계층 검색이 가능하다.
+- 다른 KAIST 단과대/학과를 추가할 때도 config만 합치고 같은 전처리/품질 평가/벡터 저장 흐름을 재사용할 수 있다.
+
+### 검증
+```powershell
+python -m unittest tests.test_config tests.test_processor_metadata
+python -m unittest discover -s tests
+python -m py_compile kaist_crawler\models.py kaist_crawler\config.py kaist_crawler\processor.py tests\test_processor_metadata.py tests\test_config.py
+python -m compileall -q kaist_crawler tests
+python -m kaist_crawler process --config configs\kaist_sources.yml --output data\kaist --clean
+python -m kaist_crawler quality-gate --config configs\kaist_sources.yml --output data\kaist
+```
+
+결과:
+
+```text
+targeted_tests=6 OK
+all_tests=32 OK
+configs/kaist_sources.yml sources=11
+documents=942
+chunks=2080
+errors=4
+filtered=2488
+institution kaist=2080
+college ai=185, natural_sciences=1895
+quality_status=fail score=30
+```
+
+현재 Quality Gate 실패는 통합 구조 문제라기보다 `kaist_ai_college`가 chunk 0개로 남아 있는 문제 때문이다. 다음 작업에서 AI College SPA 렌더링/추출을 보강해야 한다.
+
+### 변경
+- URL 자동 수집 확장을 위해 `SiteProfile -> CrawlPlan -> QualityGate` 구조를 도입했다.
+- `kaist_crawler/crawl_planner.py`를 추가해 사이트 구조 프로파일과 수집 계획 생성을 분리했다.
+- `analyze-site` 출력에 `site_profile`, `crawl_plan`, `recommended_source`가 함께 포함되도록 변경했다.
+- 분석 단계에서 query route를 보존하도록 개선했다. `index.php?mid=...`, `index.php?document_srl=...` 같은 게시판 URL이 수집 계획에 남는다.
+- 링크 텍스트와 URL 관련도 기준으로 route 후보를 정렬하고, login/account/privacy/sitemap 계열 route를 제외하도록 개선했다.
+- `kaist_crawler/quality_gate.py`를 추가해 전처리 결과의 벡터 저장 적합성을 자동 평가하도록 했다.
+- `process` 명령이 `processed/quality_gate.json`, `processed/quality_gate.md`를 자동 생성하도록 했다.
+- CLI에 `quality-gate` 명령을 추가했다.
+- 구조 설명 문서 `docs/site-profile-crawl-plan-quality-gate.md`를 추가했다.
+
+### 이유
+- URL만 넣고 원하는 데이터를 자동 수집하려면 단순 adapter 선택보다 사이트 구조, URL 패턴, 파일 정책, 전처리 품질 판단이 분리되어야 한다.
+- 자연과학대학 실험에서 query route, extensionless route, PDF viewer, 과거 시험 PDF, metadata 오분류 문제가 확인됐다.
+- 벡터 저장 전 품질 판단을 자동화해야 다른 대학원 사이트를 반복적으로 추가할 수 있다.
+
+### 검증
+```powershell
+python -m unittest tests.test_site_analyzer tests.test_quality_gate
+python -m unittest discover -s tests
+python -m kaist_crawler quality-gate --config configs\kaist_natural_sciences_sources.yml --output data\natural_sciences
+python -m kaist_crawler analyze-site --help
+python -m kaist_crawler quality-gate --help
+python -m kaist_crawler process --config configs\kaist_ai_sources.yml --output data --clean
+```
+
+결과:
+
+```text
+tests=30 OK
+natural_sciences quality_status=warn score=71
+kaist_ai documents=134 chunks=185 errors=0 filtered=911
+kaist_ai quality_status=fail score=30
+configs/kaist_natural_sciences_sources.yml sources=5
+```
+
+KAIST AI의 Quality Gate 실패는 `kaist_ai_college`가 현재 chunk 0개인 상태를 잡아낸 결과이다.
+
+### 남은 이슈
+- Quality Gate는 아직 규칙 기반이다. `content_subtype`과 chunk별 `vector_candidate`가 추가되면 더 정확해진다.
+- CrawlPlan의 route/file policy를 adapter가 모두 읽는 구조는 아직 아니다. 현재는 일부 정책은 config와 보고서에 기록되고, 일부는 adapter에 직접 반영되어 있다.
+
+## 2026-06-17
+
 ### 변경
 - 자연과학대학 계열 5개 사이트를 `analyze-site`로 분류하고, 별도 수집 config `configs/kaist_natural_sciences_sources.yml`를 생성했다.
 - 자연과학대학 수집 결과를 `data/natural_sciences` 아래에 저장하고 전처리까지 실행했다.

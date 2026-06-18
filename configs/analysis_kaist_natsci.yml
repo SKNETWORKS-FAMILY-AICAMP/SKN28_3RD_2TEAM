@@ -9,8 +9,8 @@ confidence: 0.87
 routes:
 - /
 - /news
-- /news/view/id/149
 - /news/view/id/148
+- /news/view/id/149
 - /news/view/id/146
 known_files: []
 robots_url: https://natsci.kaist.ac.kr/robots.txt
@@ -22,10 +22,22 @@ dynamic_routes: {}
 raw:
   max_pages: 80
   follow_html_links: true
+  file_policy:
+    max_file_size_mb: 30
+    exclude_url_patterns:
+    - (?i)newsletter
+    - (?i)magazine
+    - (?i)annual
+    - (?i)report
+    include_url_patterns: []
+    skip_unknown_size: false
 crawl_notes:
 - Detected site_type=static_html, adapter=static_html, confidence=0.87.
 - Recommended 5 initial route(s) and 0 known file(s).
 - Use static HTML crawling with bounded same-origin link following.
+- SiteProfile cms_type=generic, url_patterns=extensionless_routes, asset_linked.
+- CrawlPlan prioritizes 5 seed route(s) and 0 file candidate(s).
+- Apply low-value file filters before PDF/text processing.
 risks: []
 evidence:
   visible_text_chars: 1963
@@ -36,24 +48,136 @@ evidence:
   google_sheet_count: 0
   spa_score: 2
   static_score: 4
+site_profile:
+  source_id: kaist_natsci
+  name: KAIST College of Natural Sciences
+  base_url: https://natsci.kaist.ac.kr/
+  final_url: https://natsci.kaist.ac.kr/
+  title: 카이스트 자연과학대학
+  site_type: static_html
+  adapter: static_html
+  confidence: 0.87
+  cms_type: generic
+  url_patterns:
+  - extensionless_routes
+  - asset_linked
+  route_candidates:
+  - /
+  - /news
+  - /news/view/id/148
+  - /news/view/id/149
+  - /news/view/id/146
+  file_candidates: []
+  google_sheet_ids: []
+  robots_status: valid
+  sitemap_status: valid_xml
+  risks: []
+  evidence:
+    visible_text_chars: 1963
+    asset_count: 2
+    fetched_asset_text_count: 2
+    module_script_count: 0
+    app_root_count: 0
+    google_sheet_count: 0
+    spa_score: 2
+    static_score: 4
+crawl_plan:
+  source_id: kaist_natsci
+  name: KAIST College of Natural Sciences
+  base_url: https://natsci.kaist.ac.kr/
+  adapter: static_html
+  routes:
+  - /
+  - /news
+  - /news/view/id/148
+  - /news/view/id/149
+  - /news/view/id/146
+  known_files: []
+  raw_options:
+    max_pages: 80
+    follow_html_links: true
+    file_policy:
+      max_file_size_mb: 30
+      exclude_url_patterns:
+      - (?i)newsletter
+      - (?i)magazine
+      - (?i)annual
+      - (?i)report
+      include_url_patterns: []
+      skip_unknown_size: false
+  processing_options:
+    filter_policy:
+      exclude_pdf_url_patterns:
+      - (?i)newsletter
+      - (?i)magazine
+      - (?i)annual
+      - (?i)report
+  route_policy:
+    follow_html_links: true
+    preserve_query_for: []
+    exclude_path_prefixes: []
+    exclude_path_suffixes:
+    - .png
+    - .jpg
+    - .jpeg
+    - .gif
+    - .svg
+    - .ico
+    - .css
+    - .js
+  file_policy:
+    max_file_size_mb: 30
+    exclude_url_patterns:
+    - (?i)newsletter
+    - (?i)magazine
+    - (?i)annual
+    - (?i)report
+    include_url_patterns: []
+    skip_unknown_size: false
+  priority_sections:
+  - faculty
+  - admission
+  - curriculum
+  - degree_requirement
+  - scholarship
+  - notice
+  - seminar
+  - research_highlight
+  notes:
+  - SiteProfile cms_type=generic, url_patterns=extensionless_routes, asset_linked.
+  - CrawlPlan prioritizes 5 seed route(s) and 0 file candidate(s).
+  - Apply low-value file filters before PDF/text processing.
+  risks: []
 recommended_source:
   id: kaist_natsci
   name: KAIST College of Natural Sciences
   base_url: https://natsci.kaist.ac.kr/
   adapter: static_html
-  robots_url: https://natsci.kaist.ac.kr/robots.txt
-  sitemap_status: valid_xml
   routes:
   - /
   - /news
-  - /news/view/id/149
   - /news/view/id/148
+  - /news/view/id/149
   - /news/view/id/146
   known_files: []
   crawl_notes:
-  - Detected site_type=static_html, adapter=static_html, confidence=0.87.
-  - Recommended 5 initial route(s) and 0 known file(s).
-  - Use static HTML crawling with bounded same-origin link following.
+  - SiteProfile cms_type=generic, url_patterns=extensionless_routes, asset_linked.
+  - CrawlPlan prioritizes 5 seed route(s) and 0 file candidate(s).
+  - Apply low-value file filters before PDF/text processing.
   raw:
     max_pages: 80
     follow_html_links: true
+    file_policy:
+      max_file_size_mb: 30
+      exclude_url_patterns: &id001
+      - (?i)newsletter
+      - (?i)magazine
+      - (?i)annual
+      - (?i)report
+      include_url_patterns: []
+      skip_unknown_size: false
+  robots_url: https://natsci.kaist.ac.kr/robots.txt
+  sitemap_status: valid_xml
+  processing:
+    filter_policy:
+      exclude_pdf_url_patterns: *id001

@@ -15,7 +15,13 @@ class RagMetadataTests(unittest.TestCase):
             source_url="https://ax.kaist.ac.kr/admission-grad",
             title="대학원 입학 안내",
             text="석사 박사 모집 및 지원 자격 안내",
-            metadata={"document_type": "html", "route": "/admission-grad"},
+            metadata={
+                "document_type": "html",
+                "route": "/admission-grad",
+                "institution": "kaist",
+                "dept": "ax",
+                "dept_name": "AX학과",
+            },
         )
 
         self.assertEqual(metadata["dept"], "ax")
@@ -29,20 +35,20 @@ class RagMetadataTests(unittest.TestCase):
             source_url="https://fx.kaist.ac.kr/faculty-card/nuri-kim",
             title="김누리",
             text="name_ko: 김누리\nresearchInterests_ko: AI와 사회",
-            metadata={"document_type": "faculty"},
+            metadata={"document_type": "faculty", "dept": "fx", "dept_name": "AI미래학과"},
         )
 
         self.assertEqual(metadata["dept"], "fx")
         self.assertEqual(metadata["source_type"], "faculty")
         self.assertEqual(metadata["content_type"], "person")
 
-    def test_unknown_site_uses_source_id_dept_before_keyword_detection(self) -> None:
+    def test_unknown_site_uses_institution_prefix_for_generic_dept_fallback(self) -> None:
         metadata = normalize_rag_metadata(
             site="kaist_physics",
             source_url="https://physics.kaist.ac.kr/",
             title="Physics",
             text="AI seminar and admission notice",
-            metadata={"document_type": "html"},
+            metadata={"document_type": "html", "institution": "kaist"},
         )
 
         self.assertEqual(metadata["dept"], "physics")
@@ -55,7 +61,13 @@ class RagMetadataTests(unittest.TestCase):
             source_url="https://ai-systems.kaist.ac.kr/attachments/info.pdf",
             title="AI Systems Grad Info",
             text="지원 자격\n석사과정 지원 자격 안내입니다.\n" * 20,
-            metadata={"document_type": "pdf", "page": 3, "section": "지원 자격"},
+            metadata={
+                "document_type": "pdf",
+                "page": 3,
+                "section": "지원 자격",
+                "dept": "ai_systems",
+                "dept_name": "AI시스템학과",
+            },
         )
 
         chunks = chunk_documents([document], chunk_size=300, overlap=40)

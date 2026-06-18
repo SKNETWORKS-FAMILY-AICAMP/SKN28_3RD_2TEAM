@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import html
 from dataclasses import dataclass
+from time import sleep
 
 
 @dataclass(frozen=True)
@@ -68,13 +70,37 @@ class PlaywrightRenderer:
             page.wait_for_timeout(self.wait_after_ms)
             if page.url.startswith("chrome-error://"):
                 raise RuntimeError(f"Chromium failed to load page: {url}")
-            html = page.content()
+            html = self._page_content(page)
             text = ""
             if self.extract_text:
                 try:
                     text = page.locator("body").inner_text(timeout=5000)
                 except Exception:
                     text = ""
-            return RenderedPage(url=page.url, title=page.title(), html=html, text=text)
+            return RenderedPage(url=page.url, title=self._page_title(page), html=html, text=text)
         finally:
             page.close()
+
+    def _page_content(self, page) -> str:
+        last_error: Exception | None = None
+        for _ in range(3):
+            try:
+                return page.content()
+            except Exception as exc:
+                last_error = exc
+                sleep(0.5)
+        try:
+            text = page.locator("body").inner_text(timeout=5000)
+        except Exception:
+            text = ""
+        if text.strip():
+            return f"<html><body><pre>{html.escape(text)}</pre></body></html>"
+        if last_error is not None:
+            raise last_error
+        return ""
+
+    def _page_title(self, page) -> str:
+        try:
+            return page.title()
+        except Exception:
+            return ""

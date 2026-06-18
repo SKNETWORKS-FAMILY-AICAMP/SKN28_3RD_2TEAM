@@ -8,29 +8,29 @@ adapter: static_html
 confidence: 0.87
 routes:
 - ./
-- news/news/
-- student-news/
-- alumni-news/
-- intro/intro/
-- intro/direction/
-- intro/committee/
-- /ko/xe/notice/
-- intro/logo2022/
-- intro/employment/
-- edu/requirement/
 - people/professor/
-- people/postdoc/
-- people/staff/
-- research/field/
-- research/research-highlights/
-- schedules/seminar/
-- /ko/xe/news/
+- schedules/seminar/?key_event=41
+- schedules/seminar/?key_event=46
+- schedules/seminar/?key_event=41&key=
+- schedules/seminar/?key_event=46&key=
+- /ko/xe/notice/10285880
+- alumni-news/hanwool-bae/
+- /ko/xe/notice/
+- intro/employment/
+- schedules/seminar/?key_event=36
+- schedules/seminar/?key_event=47
+- schedules/seminar/?key_event=48
 - /newsletter/소식지/
 - 2026/04/%ea%b9%80%ec%9e%ac%ea%b2%bd-%eb%b0%b0%eb%aa%85%ec%a7%84-%ea%b5%90%ec%88%98-kaist-research-day/
+- schedules/seminar/?key_event=44&key=
+- schedules/seminar/?key_event=36&key=
+- schedules/seminar/?key_event=47&key=
+- schedules/seminar/?key_event=48&key=
 - student-news/%ea%b9%80%eb%b2%94%ed%98%b8-%ec%b5%9c%ec%84%9d%ed%98%84-%ed%95%99%ec%83%9d-4%eb%8b%a8%ea%b3%84-bk21%ec%82%ac%ec%97%85-%ec%b0%b8%ec%97%ac%eb%8c%80%ed%95%99%ec%9b%90%ec%83%9d-%ed%95%b4%ec%99%b8/
-- student-news/%ec%9d%b4%eb%b3%b8%ec%9a%b0-%ed%95%99%ec%83%9d-kaist-q-day-%ed%8a%b9%eb%b3%84%ed%8f%ac%ec%83%81-%ec%88%98%ec%83%81/
 - student-news/%ed%95%9c%ec%a2%85%ec%9d%b8%e3%86%8d%ec%9d%b4%eb%b3%b8%ec%9a%b0%e3%86%8d%ec%86%a1%ec%9c%a4%eb%af%bc-%ed%95%99%ec%83%9d-2024%eb%85%84-kaist-%eb%8c%80%ed%95%99%ec%9b%90%ec%83%9d-%ec%9a%b0%ec%88%98/
 - /gradseminar/
+- /ko/xe/notice/10285864
+- /ko/xe/notice/10285860
 known_files: []
 robots_url: https://mathsci.kaist.ac.kr/robots.txt
 robots_status: valid
@@ -41,10 +41,30 @@ dynamic_routes: {}
 raw:
   max_pages: 80
   follow_html_links: true
+  file_policy:
+    max_file_size_mb: 30
+    exclude_url_patterns:
+    - (?i)newsletter
+    - (?i)magazine
+    - (?i)annual
+    - (?i)report
+    - (?i)/oldexam/
+    - (?i)old[-_]?exam
+    - (?i)past[-_]?exam
+    - (?i)\bexam\b
+    - (?i)viewer\.php
+    - (?i)pdfjs-viewer
+    - 기출
+    include_url_patterns: []
+    skip_unknown_size: false
 crawl_notes:
 - Detected site_type=static_html, adapter=static_html, confidence=0.87.
 - Recommended 24 initial route(s) and 0 known file(s).
 - Use static HTML crawling with bounded same-origin link following.
+- SiteProfile cms_type=wordpress, url_patterns=extensionless_routes, query_routes,
+  asset_linked.
+- CrawlPlan prioritizes 24 seed route(s) and 0 file candidate(s).
+- Apply low-value file filters before PDF/text processing.
 risks:
 - sitemap status is missing_or_unreachable; do not rely on sitemap-only crawling.
 evidence:
@@ -56,43 +76,226 @@ evidence:
   google_sheet_count: 0
   spa_score: 2
   static_score: 4
+site_profile:
+  source_id: kaist_mathsci
+  name: KAIST Department of Mathematical Sciences
+  base_url: https://mathsci.kaist.ac.kr/home/
+  final_url: https://mathsci.kaist.ac.kr/home/
+  title: KAIST 수리과학과
+  site_type: static_html
+  adapter: static_html
+  confidence: 0.87
+  cms_type: wordpress
+  url_patterns:
+  - extensionless_routes
+  - query_routes
+  - asset_linked
+  route_candidates:
+  - ./
+  - people/professor/
+  - schedules/seminar/?key_event=41
+  - schedules/seminar/?key_event=46
+  - schedules/seminar/?key_event=41&key=
+  - schedules/seminar/?key_event=46&key=
+  - /ko/xe/notice/10285880
+  - alumni-news/hanwool-bae/
+  - /ko/xe/notice/
+  - intro/employment/
+  - schedules/seminar/?key_event=36
+  - schedules/seminar/?key_event=47
+  - schedules/seminar/?key_event=48
+  - /newsletter/소식지/
+  - 2026/04/%ea%b9%80%ec%9e%ac%ea%b2%bd-%eb%b0%b0%eb%aa%85%ec%a7%84-%ea%b5%90%ec%88%98-kaist-research-day/
+  - schedules/seminar/?key_event=44&key=
+  - schedules/seminar/?key_event=36&key=
+  - schedules/seminar/?key_event=47&key=
+  - schedules/seminar/?key_event=48&key=
+  - student-news/%ea%b9%80%eb%b2%94%ed%98%b8-%ec%b5%9c%ec%84%9d%ed%98%84-%ed%95%99%ec%83%9d-4%eb%8b%a8%ea%b3%84-bk21%ec%82%ac%ec%97%85-%ec%b0%b8%ec%97%ac%eb%8c%80%ed%95%99%ec%9b%90%ec%83%9d-%ed%95%b4%ec%99%b8/
+  - student-news/%ed%95%9c%ec%a2%85%ec%9d%b8%e3%86%8d%ec%9d%b4%eb%b3%b8%ec%9a%b0%e3%86%8d%ec%86%a1%ec%9c%a4%eb%af%bc-%ed%95%99%ec%83%9d-2024%eb%85%84-kaist-%eb%8c%80%ed%95%99%ec%9b%90%ec%83%9d-%ec%9a%b0%ec%88%98/
+  - /gradseminar/
+  - /ko/xe/notice/10285864
+  - /ko/xe/notice/10285860
+  file_candidates: []
+  google_sheet_ids: []
+  robots_status: valid
+  sitemap_status: missing_or_unreachable
+  risks:
+  - sitemap status is missing_or_unreachable; do not rely on sitemap-only crawling.
+  evidence:
+    visible_text_chars: 6253
+    asset_count: 4
+    fetched_asset_text_count: 4
+    module_script_count: 0
+    app_root_count: 0
+    google_sheet_count: 0
+    spa_score: 2
+    static_score: 4
+crawl_plan:
+  source_id: kaist_mathsci
+  name: KAIST Department of Mathematical Sciences
+  base_url: https://mathsci.kaist.ac.kr/home/
+  adapter: static_html
+  routes:
+  - ./
+  - people/professor/
+  - schedules/seminar/?key_event=41
+  - schedules/seminar/?key_event=46
+  - schedules/seminar/?key_event=41&key=
+  - schedules/seminar/?key_event=46&key=
+  - /ko/xe/notice/10285880
+  - alumni-news/hanwool-bae/
+  - /ko/xe/notice/
+  - intro/employment/
+  - schedules/seminar/?key_event=36
+  - schedules/seminar/?key_event=47
+  - schedules/seminar/?key_event=48
+  - /newsletter/소식지/
+  - 2026/04/%ea%b9%80%ec%9e%ac%ea%b2%bd-%eb%b0%b0%eb%aa%85%ec%a7%84-%ea%b5%90%ec%88%98-kaist-research-day/
+  - schedules/seminar/?key_event=44&key=
+  - schedules/seminar/?key_event=36&key=
+  - schedules/seminar/?key_event=47&key=
+  - schedules/seminar/?key_event=48&key=
+  - student-news/%ea%b9%80%eb%b2%94%ed%98%b8-%ec%b5%9c%ec%84%9d%ed%98%84-%ed%95%99%ec%83%9d-4%eb%8b%a8%ea%b3%84-bk21%ec%82%ac%ec%97%85-%ec%b0%b8%ec%97%ac%eb%8c%80%ed%95%99%ec%9b%90%ec%83%9d-%ed%95%b4%ec%99%b8/
+  - student-news/%ed%95%9c%ec%a2%85%ec%9d%b8%e3%86%8d%ec%9d%b4%eb%b3%b8%ec%9a%b0%e3%86%8d%ec%86%a1%ec%9c%a4%eb%af%bc-%ed%95%99%ec%83%9d-2024%eb%85%84-kaist-%eb%8c%80%ed%95%99%ec%9b%90%ec%83%9d-%ec%9a%b0%ec%88%98/
+  - /gradseminar/
+  - /ko/xe/notice/10285864
+  - /ko/xe/notice/10285860
+  known_files: []
+  raw_options:
+    max_pages: 80
+    follow_html_links: true
+    file_policy:
+      max_file_size_mb: 30
+      exclude_url_patterns:
+      - (?i)newsletter
+      - (?i)magazine
+      - (?i)annual
+      - (?i)report
+      - (?i)/oldexam/
+      - (?i)old[-_]?exam
+      - (?i)past[-_]?exam
+      - (?i)\bexam\b
+      - (?i)viewer\.php
+      - (?i)pdfjs-viewer
+      - 기출
+      include_url_patterns: []
+      skip_unknown_size: false
+  processing_options:
+    filter_policy:
+      exclude_pdf_url_patterns:
+      - (?i)newsletter
+      - (?i)magazine
+      - (?i)annual
+      - (?i)report
+      - (?i)/oldexam/
+      - (?i)old[-_]?exam
+      - (?i)past[-_]?exam
+      - (?i)\bexam\b
+      - (?i)viewer\.php
+      - (?i)pdfjs-viewer
+      - 기출
+  route_policy:
+    follow_html_links: true
+    preserve_query_for: []
+    exclude_path_prefixes: []
+    exclude_path_suffixes:
+    - .png
+    - .jpg
+    - .jpeg
+    - .gif
+    - .svg
+    - .ico
+    - .css
+    - .js
+  file_policy:
+    max_file_size_mb: 30
+    exclude_url_patterns:
+    - (?i)newsletter
+    - (?i)magazine
+    - (?i)annual
+    - (?i)report
+    - (?i)/oldexam/
+    - (?i)old[-_]?exam
+    - (?i)past[-_]?exam
+    - (?i)\bexam\b
+    - (?i)viewer\.php
+    - (?i)pdfjs-viewer
+    - 기출
+    include_url_patterns: []
+    skip_unknown_size: false
+  priority_sections:
+  - faculty
+  - admission
+  - curriculum
+  - degree_requirement
+  - scholarship
+  - notice
+  - seminar
+  - research_highlight
+  notes:
+  - SiteProfile cms_type=wordpress, url_patterns=extensionless_routes, query_routes,
+    asset_linked.
+  - CrawlPlan prioritizes 24 seed route(s) and 0 file candidate(s).
+  - Apply low-value file filters before PDF/text processing.
+  risks:
+  - sitemap status is missing_or_unreachable; do not rely on sitemap-only crawling.
 recommended_source:
   id: kaist_mathsci
   name: KAIST Department of Mathematical Sciences
   base_url: https://mathsci.kaist.ac.kr/home/
   adapter: static_html
-  robots_url: https://mathsci.kaist.ac.kr/robots.txt
-  sitemap_status: missing_or_unreachable
   routes:
   - ./
-  - news/news/
-  - student-news/
-  - alumni-news/
-  - intro/intro/
-  - intro/direction/
-  - intro/committee/
-  - /ko/xe/notice/
-  - intro/logo2022/
-  - intro/employment/
-  - edu/requirement/
   - people/professor/
-  - people/postdoc/
-  - people/staff/
-  - research/field/
-  - research/research-highlights/
-  - schedules/seminar/
-  - /ko/xe/news/
+  - schedules/seminar/?key_event=41
+  - schedules/seminar/?key_event=46
+  - schedules/seminar/?key_event=41&key=
+  - schedules/seminar/?key_event=46&key=
+  - /ko/xe/notice/10285880
+  - alumni-news/hanwool-bae/
+  - /ko/xe/notice/
+  - intro/employment/
+  - schedules/seminar/?key_event=36
+  - schedules/seminar/?key_event=47
+  - schedules/seminar/?key_event=48
   - /newsletter/소식지/
   - 2026/04/%ea%b9%80%ec%9e%ac%ea%b2%bd-%eb%b0%b0%eb%aa%85%ec%a7%84-%ea%b5%90%ec%88%98-kaist-research-day/
+  - schedules/seminar/?key_event=44&key=
+  - schedules/seminar/?key_event=36&key=
+  - schedules/seminar/?key_event=47&key=
+  - schedules/seminar/?key_event=48&key=
   - student-news/%ea%b9%80%eb%b2%94%ed%98%b8-%ec%b5%9c%ec%84%9d%ed%98%84-%ed%95%99%ec%83%9d-4%eb%8b%a8%ea%b3%84-bk21%ec%82%ac%ec%97%85-%ec%b0%b8%ec%97%ac%eb%8c%80%ed%95%99%ec%9b%90%ec%83%9d-%ed%95%b4%ec%99%b8/
-  - student-news/%ec%9d%b4%eb%b3%b8%ec%9a%b0-%ed%95%99%ec%83%9d-kaist-q-day-%ed%8a%b9%eb%b3%84%ed%8f%ac%ec%83%81-%ec%88%98%ec%83%81/
   - student-news/%ed%95%9c%ec%a2%85%ec%9d%b8%e3%86%8d%ec%9d%b4%eb%b3%b8%ec%9a%b0%e3%86%8d%ec%86%a1%ec%9c%a4%eb%af%bc-%ed%95%99%ec%83%9d-2024%eb%85%84-kaist-%eb%8c%80%ed%95%99%ec%9b%90%ec%83%9d-%ec%9a%b0%ec%88%98/
   - /gradseminar/
+  - /ko/xe/notice/10285864
+  - /ko/xe/notice/10285860
   known_files: []
   crawl_notes:
-  - Detected site_type=static_html, adapter=static_html, confidence=0.87.
-  - Recommended 24 initial route(s) and 0 known file(s).
-  - Use static HTML crawling with bounded same-origin link following.
+  - SiteProfile cms_type=wordpress, url_patterns=extensionless_routes, query_routes,
+    asset_linked.
+  - CrawlPlan prioritizes 24 seed route(s) and 0 file candidate(s).
+  - Apply low-value file filters before PDF/text processing.
   raw:
     max_pages: 80
     follow_html_links: true
+    file_policy:
+      max_file_size_mb: 30
+      exclude_url_patterns: &id001
+      - (?i)newsletter
+      - (?i)magazine
+      - (?i)annual
+      - (?i)report
+      - (?i)/oldexam/
+      - (?i)old[-_]?exam
+      - (?i)past[-_]?exam
+      - (?i)\bexam\b
+      - (?i)viewer\.php
+      - (?i)pdfjs-viewer
+      - 기출
+      include_url_patterns: []
+      skip_unknown_size: false
+  robots_url: https://mathsci.kaist.ac.kr/robots.txt
+  sitemap_status: missing_or_unreachable
+  processing:
+    filter_policy:
+      exclude_pdf_url_patterns: *id001

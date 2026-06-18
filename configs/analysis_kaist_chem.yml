@@ -8,29 +8,29 @@ adapter: static_html
 confidence: 0.87
 routes:
 - ./
-- /
-- /introduce
+- /undergraduate
+- /news/view/id/2845
+- /notice/view/id/2657
+- /news/view/id/2453
+- /notice/view/id/2370
+- /notice/view/id/2361
+- /news/view/id/2314
+- /news/view/id/2024
+- /news/view/id/1999
+- /news/view/id/1901
+- /news/view/id/1857
 - /faculty
 - /professor_emeritus
-- /undergraduate
 - /curriculum
 - /scholarship
 - /course
-- /requirement
-- /research_vision
-- /research_field
-- /research_center
-- /research_facility
 - /news
 - /notice
-- /research_results
 - /seminar
-- /research_results/index
+- /introduce
 - /research_results/view/id/2910
 - /research_results/view/id/2909
 - /research_results/view/id/2908
-- /research_results/view/id/2905
-- /research_results/view/id/2903
 known_files: []
 robots_url: https://chem.kaist.ac.kr/robots.txt
 robots_status: valid
@@ -41,10 +41,22 @@ dynamic_routes: {}
 raw:
   max_pages: 80
   follow_html_links: true
+  file_policy:
+    max_file_size_mb: 30
+    exclude_url_patterns:
+    - (?i)newsletter
+    - (?i)magazine
+    - (?i)annual
+    - (?i)report
+    include_url_patterns: []
+    skip_unknown_size: false
 crawl_notes:
 - Detected site_type=static_html, adapter=static_html, confidence=0.87.
 - Recommended 24 initial route(s) and 0 known file(s).
 - Use static HTML crawling with bounded same-origin link following.
+- SiteProfile cms_type=generic, url_patterns=extensionless_routes, asset_linked.
+- CrawlPlan prioritizes 24 seed route(s) and 0 file candidate(s).
+- Apply low-value file filters before PDF/text processing.
 risks: []
 evidence:
   visible_text_chars: 6295
@@ -55,43 +67,193 @@ evidence:
   google_sheet_count: 0
   spa_score: 2
   static_score: 4
+site_profile:
+  source_id: kaist_chem
+  name: KAIST Department of Chemistry
+  base_url: https://chem.kaist.ac.kr/main/
+  final_url: https://chem.kaist.ac.kr/main/
+  title: 메인 - KAIST 화학과
+  site_type: static_html
+  adapter: static_html
+  confidence: 0.87
+  cms_type: generic
+  url_patterns:
+  - extensionless_routes
+  - asset_linked
+  route_candidates:
+  - ./
+  - /undergraduate
+  - /news/view/id/2845
+  - /notice/view/id/2657
+  - /news/view/id/2453
+  - /notice/view/id/2370
+  - /notice/view/id/2361
+  - /news/view/id/2314
+  - /news/view/id/2024
+  - /news/view/id/1999
+  - /news/view/id/1901
+  - /news/view/id/1857
+  - /faculty
+  - /professor_emeritus
+  - /curriculum
+  - /scholarship
+  - /course
+  - /news
+  - /notice
+  - /seminar
+  - /introduce
+  - /research_results/view/id/2910
+  - /research_results/view/id/2909
+  - /research_results/view/id/2908
+  file_candidates: []
+  google_sheet_ids: []
+  robots_status: valid
+  sitemap_status: valid_xml
+  risks: []
+  evidence:
+    visible_text_chars: 6295
+    asset_count: 6
+    fetched_asset_text_count: 5
+    module_script_count: 0
+    app_root_count: 0
+    google_sheet_count: 0
+    spa_score: 2
+    static_score: 4
+crawl_plan:
+  source_id: kaist_chem
+  name: KAIST Department of Chemistry
+  base_url: https://chem.kaist.ac.kr/main/
+  adapter: static_html
+  routes:
+  - ./
+  - /undergraduate
+  - /news/view/id/2845
+  - /notice/view/id/2657
+  - /news/view/id/2453
+  - /notice/view/id/2370
+  - /notice/view/id/2361
+  - /news/view/id/2314
+  - /news/view/id/2024
+  - /news/view/id/1999
+  - /news/view/id/1901
+  - /news/view/id/1857
+  - /faculty
+  - /professor_emeritus
+  - /curriculum
+  - /scholarship
+  - /course
+  - /news
+  - /notice
+  - /seminar
+  - /introduce
+  - /research_results/view/id/2910
+  - /research_results/view/id/2909
+  - /research_results/view/id/2908
+  known_files: []
+  raw_options:
+    max_pages: 80
+    follow_html_links: true
+    file_policy:
+      max_file_size_mb: 30
+      exclude_url_patterns:
+      - (?i)newsletter
+      - (?i)magazine
+      - (?i)annual
+      - (?i)report
+      include_url_patterns: []
+      skip_unknown_size: false
+  processing_options:
+    filter_policy:
+      exclude_pdf_url_patterns:
+      - (?i)newsletter
+      - (?i)magazine
+      - (?i)annual
+      - (?i)report
+  route_policy:
+    follow_html_links: true
+    preserve_query_for: []
+    exclude_path_prefixes: []
+    exclude_path_suffixes:
+    - .png
+    - .jpg
+    - .jpeg
+    - .gif
+    - .svg
+    - .ico
+    - .css
+    - .js
+  file_policy:
+    max_file_size_mb: 30
+    exclude_url_patterns:
+    - (?i)newsletter
+    - (?i)magazine
+    - (?i)annual
+    - (?i)report
+    include_url_patterns: []
+    skip_unknown_size: false
+  priority_sections:
+  - faculty
+  - admission
+  - curriculum
+  - degree_requirement
+  - scholarship
+  - notice
+  - seminar
+  - research_highlight
+  notes:
+  - SiteProfile cms_type=generic, url_patterns=extensionless_routes, asset_linked.
+  - CrawlPlan prioritizes 24 seed route(s) and 0 file candidate(s).
+  - Apply low-value file filters before PDF/text processing.
+  risks: []
 recommended_source:
   id: kaist_chem
   name: KAIST Department of Chemistry
   base_url: https://chem.kaist.ac.kr/main/
   adapter: static_html
-  robots_url: https://chem.kaist.ac.kr/robots.txt
-  sitemap_status: valid_xml
   routes:
   - ./
-  - /
-  - /introduce
+  - /undergraduate
+  - /news/view/id/2845
+  - /notice/view/id/2657
+  - /news/view/id/2453
+  - /notice/view/id/2370
+  - /notice/view/id/2361
+  - /news/view/id/2314
+  - /news/view/id/2024
+  - /news/view/id/1999
+  - /news/view/id/1901
+  - /news/view/id/1857
   - /faculty
   - /professor_emeritus
-  - /undergraduate
   - /curriculum
   - /scholarship
   - /course
-  - /requirement
-  - /research_vision
-  - /research_field
-  - /research_center
-  - /research_facility
   - /news
   - /notice
-  - /research_results
   - /seminar
-  - /research_results/index
+  - /introduce
   - /research_results/view/id/2910
   - /research_results/view/id/2909
   - /research_results/view/id/2908
-  - /research_results/view/id/2905
-  - /research_results/view/id/2903
   known_files: []
   crawl_notes:
-  - Detected site_type=static_html, adapter=static_html, confidence=0.87.
-  - Recommended 24 initial route(s) and 0 known file(s).
-  - Use static HTML crawling with bounded same-origin link following.
+  - SiteProfile cms_type=generic, url_patterns=extensionless_routes, asset_linked.
+  - CrawlPlan prioritizes 24 seed route(s) and 0 file candidate(s).
+  - Apply low-value file filters before PDF/text processing.
   raw:
     max_pages: 80
     follow_html_links: true
+    file_policy:
+      max_file_size_mb: 30
+      exclude_url_patterns: &id001
+      - (?i)newsletter
+      - (?i)magazine
+      - (?i)annual
+      - (?i)report
+      include_url_patterns: []
+      skip_unknown_size: false
+  robots_url: https://chem.kaist.ac.kr/robots.txt
+  sitemap_status: valid_xml
+  processing:
+    filter_policy:
+      exclude_pdf_url_patterns: *id001

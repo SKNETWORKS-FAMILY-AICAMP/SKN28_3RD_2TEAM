@@ -9,7 +9,6 @@ from typing import Any
 class DepartmentInfo:
     code: str
     name: str
-    sites: tuple[str, ...]
     keywords: tuple[str, ...]
 
 
@@ -17,34 +16,24 @@ DEPARTMENTS: tuple[DepartmentInfo, ...] = (
     DepartmentInfo(
         code="aic",
         name="AI컴퓨팅학과",
-        sites=("kaist_aic",),
         keywords=("AI컴퓨팅", "AI 컴퓨팅", "AI Computing", "AIC", "컴퓨팅학과"),
     ),
     DepartmentInfo(
         code="ai_systems",
         name="AI시스템학과",
-        sites=("kaist_ai_systems",),
         keywords=("AI시스템", "AI 시스템", "AI Systems", "AI System", "시스템학과"),
     ),
     DepartmentInfo(
         code="ax",
         name="AX학과",
-        sites=("kaist_ax",),
         keywords=("AX학과", "AX 학과", "AI Transformation", "AX"),
     ),
     DepartmentInfo(
         code="fx",
         name="AI미래학과",
-        sites=("kaist_fx",),
         keywords=("AI미래", "AI 미래", "AI and Futures", "Futures Studies", "FX", "미래학과"),
     ),
 )
-
-SITE_DEPARTMENT = {
-    site: department
-    for department in DEPARTMENTS
-    for site in department.sites
-}
 
 SOURCE_TYPE_BY_DOCUMENT_TYPE = {
     "html": "html",
@@ -198,18 +187,8 @@ def normalize_rag_metadata(
     normalized = dict(metadata)
     document_type = str(normalized.get("document_type") or "")
 
-    if site == "kaist_ai_college" and not normalized.get("dept"):
-        normalized.setdefault("dept", "ai_college")
-        normalized.setdefault("dept_name", "KAIST AI College")
-    elif site == "kaist_main_kr" and not normalized.get("dept"):
-        normalized.setdefault("dept", "kaist")
-        normalized.setdefault("dept_name", "KAIST")
-    elif site in SITE_DEPARTMENT and not normalized.get("dept"):
-        department = SITE_DEPARTMENT[site]
-        normalized.setdefault("dept", department.code)
-        normalized.setdefault("dept_name", department.name)
-    elif not normalized.get("dept"):
-        dept, dept_name = generic_department_from_site(site)
+    if not normalized.get("dept"):
+        dept, dept_name = generic_department_from_site(site, metadata=normalized)
         normalized.setdefault("dept", dept)
         normalized.setdefault("dept_name", dept_name)
     else:
@@ -245,10 +224,18 @@ def normalize_rag_metadata(
     return normalized
 
 
-def generic_department_from_site(site: str) -> tuple[str, str]:
+def generic_department_from_site(site: str, *, metadata: dict[str, Any] | None = None) -> tuple[str, str]:
     code = re.sub(r"[^a-z0-9]+", "_", site.lower()).strip("_")
-    if code.startswith("kaist_"):
-        code = code.removeprefix("kaist_")
+    metadata = metadata or {}
+    prefix_candidates = [
+        str(metadata.get("institution") or "").lower(),
+        str(metadata.get("college") or "").lower(),
+    ]
+    for prefix in prefix_candidates:
+        prefix = re.sub(r"[^a-z0-9]+", "_", prefix).strip("_")
+        if prefix and code.startswith(f"{prefix}_"):
+            code = code.removeprefix(f"{prefix}_")
+            break
     code = code or "unknown"
     name = " ".join(part.upper() if len(part) <= 3 else part.title() for part in code.split("_"))
     return code, name
@@ -268,9 +255,6 @@ def detect_department(
         for department in DEPARTMENTS:
             if department.code == explicit_code:
                 return department
-
-    if site in SITE_DEPARTMENT:
-        return SITE_DEPARTMENT[site]
 
     haystack = " ".join([source_url, title, text[:3000]]).lower()
     for department in DEPARTMENTS:

@@ -64,6 +64,282 @@ defaults:
       include_html_url_patterns: []
       exclude_html_url_patterns: []
 sources:
+- id: kaist_aic
+  name: KAIST Department of AI Computing
+  base_url: https://aic.kaist.ac.kr/
+  adapter: vite_react_spa
+  robots_url: https://aic.kaist.ac.kr/robots.txt
+  sitemap_status: html_fallback
+  routes:
+  - /
+  - /welcome-message
+  - /dept-intro
+  - /people
+  - /admission-ug
+  - /admission-grad
+  - /education-courses
+  - /education-reqs
+  - /notice
+  known_files:
+  - /files/AI_Computing_Grad_Info_Session_20260320.pdf
+  - /files/AI_Computing_Introduction_20260526.pdf
+  raw:
+    render_routes: true
+    render_timeout_ms: 30000
+    render_wait_until: commit
+    render_wait_after_ms: 3000
+    render_stop_after_first_failure: false
+  crawl_notes:
+  - Server returns index HTML for sitemap paths; do not depend on sitemap XML.
+  - Main content is embedded in the Vite/React JavaScript bundle and rendered client-side.
+  - Use Playwright rendering for route pages, plus static bundle scanning for file
+    links.
+  institution: kaist
+  institution_name: KAIST
+  college: ai
+  college_name: KAIST College of AI
+  dept: aic
+  dept_name: AI?????
+- id: kaist_ai_systems
+  name: KAIST Department of AI Systems
+  base_url: https://ai-systems.kaist.ac.kr/
+  adapter: static_html
+  robots_url: https://ai-systems.kaist.ac.kr/robots.txt
+  sitemap_status: missing_404
+  routes:
+  - /
+  - /news.html
+  - /admission-ug.html
+  - /admission-grad.html
+  route_aliases:
+    /news.html: /news
+    /admission-ug.html: /admission-ug
+    /admission-grad.html: /admission-grad
+  known_files:
+  - /attachments/AI_Systems_Grad_Info_20260319.pdf
+  crawl_notes:
+  - Pages are static HTML and can be fetched with httpx/requests.
+  - robots.txt and sitemap.xml returned 404 at inspection time.
+  - Follow same-origin HTML links and download attachments.
+  institution: kaist
+  institution_name: KAIST
+  college: ai
+  college_name: KAIST College of AI
+  dept: ai_systems
+  dept_name: AI?????
+- id: kaist_ax
+  name: KAIST Department of AX
+  base_url: https://ax.kaist.ac.kr/
+  adapter: vite_react_spa
+  robots_url: https://ax.kaist.ac.kr/robots.txt
+  sitemap_status: html_fallback_wrong_sitemap_target
+  routes:
+  - /
+  - /welcome-message
+  - /dept-intro
+  - /people
+  - /admission-ug
+  - /admission-grad
+  - /education-courses
+  - /education-reqs
+  - /notice
+  known_files:
+  - /files/20260318_AX학과_2026년_가을입학_입시설명회_VER3.pdf
+  raw:
+    render_routes: true
+    render_timeout_ms: 30000
+    render_wait_until: commit
+    render_wait_after_ms: 3000
+    render_stop_after_first_failure: false
+  crawl_notes:
+  - robots.txt allows crawling but points to the AIC sitemap URL, so ignore the sitemap
+    directive for this domain.
+  - Server returns index HTML for sitemap paths.
+  - Main content is embedded in the Vite/React JavaScript bundle and rendered client-side.
+  institution: kaist
+  institution_name: KAIST
+  college: ai
+  college_name: KAIST College of AI
+  dept: ax
+  dept_name: AX??
+- id: kaist_fx
+  name: KAIST Department of AI and Futures Studies
+  base_url: https://fx.kaist.ac.kr/
+  adapter: vite_react_spa_with_google_sheets
+  robots_url: https://fx.kaist.ac.kr/robots.txt
+  sitemap_status: html_fallback
+  routes:
+  - /
+  - /about
+  - /faculty
+  - /curriculum
+  - /news
+  dynamic_routes:
+    news_detail:
+      pattern: /news/{slug}
+      source: google_sheet:news.slug
+    faculty_detail:
+      pattern: /faculty-card/{slug}
+      source: google_sheet:faculty.name_en_slug
+  google_sheets:
+    spreadsheet_id: 1Y3HuFoK0Zu9WAsiTsqaCxbyXZTJxMP_XkQ_uCHSPN5A
+    sheets:
+    - news
+    - faculty
+    gviz_url_template: https://docs.google.com/spreadsheets/d/{spreadsheet_id}/gviz/tq?tqx=out:json&headers=1&sheet={sheet}
+    document_mappings:
+      news:
+        document_type: news
+        route_template: /news/{slug}
+        slug_field: slug
+        title_fields:
+        - title_ko
+        - title_en
+        - slug
+        text_fields:
+        - title_ko
+        - title_en
+        - body_ko
+        - body_en
+        metadata_fields:
+        - category
+      faculty:
+        document_type: faculty
+        route_template: /faculty-card/{slug}
+        slug_field: name_en
+        slugify_slug: true
+        title_fields:
+        - name_ko
+        - name_en
+        text_fields: '*'
+  raw:
+    render_routes: true
+    render_timeout_ms: 30000
+    render_wait_until: commit
+    render_wait_after_ms: 3000
+    render_stop_after_first_failure: false
+  crawl_notes:
+  - robots.txt and sitemap.xml return the SPA index HTML, not robot/sitemap documents.
+  - News and faculty records are loaded from public Google Sheets gviz JSON.
+  - Store rendered route HTML and raw gviz JSON so vector rebuilds do not depend on
+    a live sheet request.
+  institution: kaist
+  institution_name: KAIST
+  college: ai
+  college_name: KAIST College of AI
+  dept: fx
+  dept_name: AI????
+- id: kaist_main_kr
+  name: KAIST Korean Main Website
+  base_url: https://www.kaist.ac.kr/kr/
+  adapter: static_html
+  robots_url: https://www.kaist.ac.kr/robots.txt
+  sitemap_status: valid_xml_limited_top_level
+  routes:
+  - /kr/
+  - /kr/html/kaist/01.html
+  - /kr/html/admission/02.html
+  - /kr/html/edu/03.html
+  - /kr/html/research/04.html
+  - /kr/html/campus/05.html
+  raw:
+    max_pages: 80
+    follow_html_links: true
+    domain_aliases:
+    - kaist.ac.kr
+    - www.kaist.ac.kr
+    include_path_prefixes:
+    - /kr/
+    - /kr/html/kaist/
+    - /kr/html/admission/
+    - /kr/html/edu/
+    - /kr/html/research/
+    - /kr/html/campus/
+    exclude_path_prefixes:
+    - /kr/html/footer/
+    - /kr/html/news/
+    - /site/
+    - /en/
+    exclude_paths:
+    - /kr/html/kaist/0111.html
+    - /kr/html/kaist/0112.html
+    - /kr/html/kaist/0104.html
+    - /kr/html/kaist/0114.html
+    - /kr/html/kaist/011401.html
+    - /kr/html/kaist/0105.html
+    - /kr/html/kaist/0117.html
+    - /kr/html/edu/0310.html
+    - /kr/html/edu/0312.html
+    - /kr/html/research/0402.html
+    - /kr/html/research/0403.html
+    - /kr/html/research/0404.html
+    - /kr/html/research/0407.html
+    - /kr/html/campus/0530.html
+    - /kr/html/campus/0537.html
+    - /kr/html/campus/0531.html
+    - /kr/html/campus/053101.html
+    - /kr/html/campus/053102.html
+    - /kr/html/campus/053103.html
+    - /kr/html/campus/053105.html
+    - /kr/html/campus/053106.html
+    - /kr/html/campus/0532.html
+    - /kr/html/campus/0534.html
+    - /kr/html/campus/0535.html
+    - /kr/html/campus/0536.html
+  processing:
+    filter_policy:
+      include_html_url_patterns:
+      - /kr/html/admission/
+      - /kr/html/edu/
+  crawl_notes:
+  - robots.txt allows crawling and sitemap.xml is valid, but the public menu links
+    are broad.
+  - Bound the crawl to Korean main-site pages under /kr/ and core /kr/html sections.
+  - Exclude footer/legal/news/external sections to avoid collecting unrelated operational
+    pages.
+  institution: kaist
+  institution_name: KAIST
+  college: ai
+  college_name: KAIST College of AI
+  dept: kaist
+  dept_name: KAIST
+- id: kaist_ai_college
+  name: KAIST College of AI
+  base_url: https://aicollege.kaist.ac.kr/
+  adapter: vite_react_spa
+  robots_url: https://aicollege.kaist.ac.kr/robots.txt
+  sitemap_status: html_fallback
+  routes:
+  - /
+  - /intro
+  - /departments
+  - /admissions
+  - /course-information
+  - /graduation-requirements
+  - /notice
+  - /notice/ai-college-vision-declaration
+  - /notice/global-ai-hub-statement
+  raw:
+    render_routes: true
+    render_timeout_ms: 30000
+    render_wait_until: commit
+    render_wait_after_ms: 3000
+    render_stop_after_first_failure: false
+  processing:
+    filter_policy:
+      exclude_document_types:
+      - html_shell
+      - google_sheet
+  crawl_notes:
+  - Root HTML is a Vite/React shell and references /assets/index-FwXjtZow.js.
+  - robots.txt allows crawling, but sitemap.xml returns the SPA index HTML.
+  - Collect the app shell, JS/CSS assets, configured route shells, and bundle text.
+  institution: kaist
+  institution_name: KAIST
+  college: ai
+  college_name: KAIST College of AI
+  dept: ai_college
+  dept_name: KAIST College of AI
 - id: kaist_natsci
   name: KAIST College of Natural Sciences
   base_url: https://natsci.kaist.ac.kr/

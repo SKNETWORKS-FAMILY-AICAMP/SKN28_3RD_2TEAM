@@ -170,11 +170,28 @@ def _json_string_literals(content: str) -> Iterable[str]:
 def _is_meaningful_literal(value: str) -> bool:
     if len(value) < 12:
         return False
+    noisy = (
+        "${",
+        "className",
+        "transition-",
+        "duration-",
+        "ease-in-out",
+        "border-",
+        "text-",
+        "bg-",
+        "hover:",
+        "function",
+        "return",
+        "react",
+        "document.",
+        "window.",
+    )
+    if any(token in value for token in noisy):
+        return False
     if KOREAN_RE.search(value):
         return True
     if len(value) >= 30 and re.search(r"[A-Za-z]{3,}\s+[A-Za-z]{3,}", value):
-        noisy = ("function", "return", "className", "react", "document.", "window.")
-        return not any(token in value for token in noisy)
+        return True
     return False
 
 

@@ -1,8 +1,8 @@
-# KAIST AI 대학원 크롤러
+# KAIST 대학원 크롤러
 
-KAIST AI 관련 학과 사이트와 KAIST 본원/AI College 사이트를 수집해서 RAG 챗봇에 사용할 raw data, processed documents/chunks, vector store를 만드는 Python 프로젝트입니다.
+KAIST 내부 대학/학과 사이트를 수집해서 RAG 챗봇에 사용할 raw data, processed documents/chunks, vector store를 만드는 Python 프로젝트입니다.
 
-현재 수집 대상은 다음 6개 사이트입니다.
+현재 통합 수집 대상은 다음 11개 사이트입니다.
 
 - `https://aic.kaist.ac.kr/`
 - `https://ai-systems.kaist.ac.kr/`
@@ -10,6 +10,13 @@ KAIST AI 관련 학과 사이트와 KAIST 본원/AI College 사이트를 수집�
 - `https://fx.kaist.ac.kr/`
 - `https://www.kaist.ac.kr/kr/`
 - `https://aicollege.kaist.ac.kr/`
+- `https://natsci.kaist.ac.kr/`
+- `https://physics.kaist.ac.kr/`
+- `https://mathsci.kaist.ac.kr/home/`
+- `https://chem.kaist.ac.kr/main/`
+- `https://quantum.kaist.ac.kr/`
+
+KAIST 내부 사이트는 통합 config `configs/kaist_sources.yml`와 통합 출력 루트 `data/kaist`를 기본으로 사용합니다. AI 대학과 자연과학대학은 모두 `institution=kaist`를 공유하고, `college=ai` 또는 `college=natural_sciences` metadata로 구분합니다.
 
 프로젝트 위치는 `C:\Users\Playdata\workspace\kaist_ai_crawler_project`입니다.
 
@@ -31,27 +38,27 @@ raw 수집 -> raw manifest 기반 전처리 -> vector store 생성
 raw data만 수집합니다. PDF는 원본 파일만 저장하고 텍스트 추출은 하지 않습니다.
 
 ```powershell
-python -m kaist_crawler raw --config configs\kaist_ai_sources.yml --output data
+python -m kaist_crawler raw --config configs\kaist_sources.yml --output data\kaist
 ```
 
 이미 수집된 raw data에서 documents/chunks를 생성합니다. PDF 텍스트 추출은 이 단계에서 수행됩니다.
 
 ```powershell
-python -m kaist_crawler process --config configs\kaist_ai_sources.yml --output data
+python -m kaist_crawler process --config configs\kaist_sources.yml --output data\kaist
 ```
 
 raw 수집, 전처리, vector store 생성을 한 번에 실행합니다.
 
 ```powershell
-python -m kaist_crawler run --config configs\kaist_ai_sources.yml --output data
+python -m kaist_crawler run --config configs\kaist_sources.yml --output data\kaist
 ```
 
 특정 사이트만 실행할 수도 있습니다.
 
 ```powershell
-python -m kaist_crawler raw --config configs\kaist_ai_sources.yml --output data --source kaist_ai_systems
-python -m kaist_crawler process --config configs\kaist_ai_sources.yml --output data --source kaist_ai_systems
-python -m kaist_crawler run --config configs\kaist_ai_sources.yml --output data --source kaist_ai_systems --skip-vector
+python -m kaist_crawler raw --config configs\kaist_sources.yml --output data\kaist --source kaist_ai_systems
+python -m kaist_crawler process --config configs\kaist_sources.yml --output data\kaist --source kaist_ai_systems
+python -m kaist_crawler run --config configs\kaist_sources.yml --output data\kaist --source kaist_ai_systems --skip-vector
 ```
 
 다른 대학원 사이트를 추가하기 전에는 사이트 분석기로 구조와 추천 config를 먼저 확인합니다.
@@ -60,14 +67,22 @@ python -m kaist_crawler run --config configs\kaist_ai_sources.yml --output data 
 python -m kaist_crawler analyze-site https://example.edu/graduate --id example_graduate --name "Example Graduate School" --output configs\recommended_example.yml
 ```
 
-분석기는 정적 HTML/SPA/Google Sheets 사용 여부, robots/sitemap 상태, route 후보, 첨부파일 후보, adapter 추천, raw 수집 옵션 초안을 출력합니다. 출력된 `recommended_source`를 검토한 뒤 `configs/kaist_ai_sources.yml`의 `sources` 아래에 붙여 넣고, 필요한 route와 sheet mapping을 보완해서 raw 수집을 실행합니다.
+분석기는 정적 HTML/SPA/Google Sheets 사용 여부, robots/sitemap 상태, route 후보, 첨부파일 후보, adapter 추천, raw 수집 옵션 초안을 출력합니다. 출력된 `recommended_source`를 검토한 뒤 KAIST 사이트라면 `configs/kaist_sources.yml`의 `sources` 아래에 붙여 넣고, 필요한 route와 sheet mapping을 보완해서 raw 수집을 실행합니다.
+
+분석 결과에는 `site_profile`, `crawl_plan`, `recommended_source`가 함께 들어갑니다. 전처리 이후 벡터 저장 전 품질을 다시 평가하려면 다음 명령을 사용합니다.
+
+```powershell
+python -m kaist_crawler quality-gate --config configs\kaist_sources.yml --output data\kaist
+```
+
+`process` 명령은 자동으로 `processed\quality_gate.json`, `processed\quality_gate.md`를 생성합니다.
 
 재수집 전에 command별 출력물을 지우려면 `--clean`을 사용합니다.
 
 ```powershell
-python -m kaist_crawler raw --config configs\kaist_ai_sources.yml --output data --clean
-python -m kaist_crawler process --config configs\kaist_ai_sources.yml --output data --clean
-python -m kaist_crawler run --config configs\kaist_ai_sources.yml --output data --clean
+python -m kaist_crawler raw --config configs\kaist_sources.yml --output data\kaist --clean
+python -m kaist_crawler process --config configs\kaist_sources.yml --output data\kaist --clean
+python -m kaist_crawler run --config configs\kaist_sources.yml --output data\kaist --clean
 ```
 
 `raw --clean`은 `raw/`만 지웁니다. `process --clean`은 `processed/`만 지웁니다. `run --clean`은 `raw/`, `processed/`, `vector/`를 지웁니다.
@@ -75,21 +90,21 @@ python -m kaist_crawler run --config configs\kaist_ai_sources.yml --output data 
 이미 만들어진 chunk 파일로 vector store만 다시 만들 수 있습니다.
 
 ```powershell
-python -m kaist_crawler build-vector --input data\processed\chunks.jsonl --output data
+python -m kaist_crawler build-vector --input data\kaist\processed\chunks.jsonl --output data\kaist
 ```
 
 OpenAI embedding을 사용하려면 `OPENAI_API_KEY`를 설정하고 `--embedding-provider openai`를 지정합니다.
 
 ```powershell
 $env:OPENAI_API_KEY = "sk-..."
-python -m kaist_crawler build-vector --input data\processed\chunks.jsonl --output data --embedding-provider openai
+python -m kaist_crawler build-vector --input data\kaist\processed\chunks.jsonl --output data\kaist --embedding-provider openai
 ```
 
 기본 OpenAI embedding 모델은 `text-embedding-3-large`입니다. 비용과 속도를 줄이려면 `--embedding-model text-embedding-3-small`을 사용할 수 있습니다.
 
 ## 설정 검증
 
-`configs/kaist_ai_sources.yml`은 실행 시 검증됩니다. source id 중복, adapter 오타, `routes` 같은 주요 키 오타, 잘못된 타입은 실행 초기에 `ValueError`로 중단합니다.
+`configs/kaist_sources.yml`은 실행 시 검증됩니다. source id 중복, adapter 오타, `routes` 같은 주요 키 오타, 잘못된 타입은 실행 초기에 `ValueError`로 중단합니다.
 
 `defaults.request_timeout_seconds`는 HTTP 요청 timeout으로 적용되고, `defaults.polite_delay_seconds`는 연속 요청 사이의 기본 대기 시간으로 적용됩니다.
 
@@ -99,17 +114,28 @@ python -m kaist_crawler build-vector --input data\processed\chunks.jsonl --outpu
 kaist_ai_crawler_project/
   configs/
     kaist_ai_sources.yml
+    kaist_natural_sciences_sources.yml
+    kaist_sources.yml
+    analysis_kaist_*.yml
   docs/
     kaist-crawling-strategy.md
+    kaist-unified-storage-and-crawl-strategy.md
+    site-profile-crawl-plan-quality-gate.md
+    natural-sciences-crawl-quality.md
     change-log.md
+  data/
+    kaist/
+    _archive_legacy/
   kaist_crawler/
     __main__.py
     cli.py
     pipeline.py
+    crawl_planner.py
     site_analyzer.py
     adapters.py
     processor.py
     sheet_mapping.py
+    quality_gate.py
     policies.py
     config.py
     http_client.py
@@ -126,38 +152,51 @@ kaist_ai_crawler_project/
 
 ```text
 data/
-  raw/
-    <site>/
-      manifest.jsonl
-      skipped_files.jsonl
-      pages/
-      assets/
-      sheets/
-      files/
-  processed/
-    documents.jsonl
-    chunks.jsonl
-    errors.jsonl
-    filtered.jsonl
-  vector/
-    chroma/
+  kaist/
+    raw/
+      <site>/
+        manifest.jsonl
+        skipped_files.jsonl
+        pages/
+        assets/
+        sheets/
+        files/
+    processed/
+      documents.jsonl
+      chunks.jsonl
+      errors.jsonl
+      filtered.jsonl
+      quality_gate.json
+      quality_gate.md
+    vector/
+      chroma/
+  _archive_legacy/
+    raw/
+    processed/
+    vector/
+    natural_sciences/
 ```
 
-- `raw/`: 원본 HTML, 렌더링 HTML, JS/CSS asset, Google Sheets JSON, PDF 파일을 저장합니다.
+- `data/kaist/`: 현재 운영 기준 통합 산출물입니다.
+- `data/kaist/raw/`: 원본 HTML, 렌더링 HTML, JS/CSS asset, Google Sheets JSON, PDF 파일을 저장합니다.
 - `manifest.jsonl`: raw 파일의 URL, 저장 경로, content-type, sha256, metadata를 기록합니다.
 - `skipped_files.jsonl`: raw 단계에서 file policy 때문에 다운로드하지 않은 파일과 제외 사유를 기록합니다.
-- `processed/documents.jsonl`: raw data에서 추출한 문서 단위 텍스트입니다.
-- `processed/chunks.jsonl`: vector store에 넣기 위한 chunk입니다.
-- `processed/errors.jsonl`: 수집 또는 전처리 중 발생한 비치명적 오류입니다.
-- `processed/filtered.jsonl`: 전처리 단계에서 벡터 저장 대상에서 제외한 raw/document/chunk와 사유입니다.
-- `vector/chroma/`: Chroma 로컬 vector store입니다.
+- `data/kaist/processed/documents.jsonl`: raw data에서 추출한 문서 단위 텍스트입니다.
+- `data/kaist/processed/chunks.jsonl`: vector store에 넣기 위한 chunk입니다.
+- `data/kaist/processed/errors.jsonl`: 수집 또는 전처리 중 발생한 비치명적 오류입니다.
+- `data/kaist/processed/filtered.jsonl`: 전처리 단계에서 벡터 저장 대상에서 제외한 raw/document/chunk와 사유입니다.
+- `data/kaist/processed/quality_gate.json/md`: 전처리 품질 평가 결과입니다.
+- `data/kaist/vector/chroma/`: Chroma 로컬 vector store입니다.
+- `data/_archive_legacy/`: 통합 구조로 옮기기 전 AI/자연과학 분리 실험 산출물을 보관합니다. 현재 기본 명령은 이 폴더를 사용하지 않습니다.
 
 ## 모듈 역할
 
 - `adapters.py`: 사이트별 raw 수집만 담당합니다.
 - `site_analyzer.py`: 새 대학원 URL을 분석해 adapter, route, known_files, raw 옵션 config 초안을 추천합니다.
+- `crawl_planner.py`: `SiteProfile`과 `CrawlPlan`을 만들어 사이트 구조와 수집 정책을 분리합니다.
 - `processor.py`: `raw/*/manifest.jsonl`을 읽어 documents/chunks를 생성합니다. PDF 텍스트 추출도 여기서 수행합니다.
 - `sheet_mapping.py`: Google Sheets 같은 정형 row 데이터를 RAG 문서 후보로 바꾸는 매핑 로직을 담당합니다.
+- `quality_gate.py`: 전처리 결과가 벡터 저장에 적합한지 평가하고 `quality_gate.json/md`를 생성합니다.
 - `policies.py`: raw 파일 다운로드 정책과 전처리 필터 정책을 정의합니다.
 - `pipeline.py`: `raw`, `process`, `run`, `build-vector` 흐름을 조합합니다.
 - `extractors.py`: HTML, JS literal, PDF, Google Sheets JSON, chunking 관련 순수 추출 함수를 제공합니다.
@@ -166,7 +205,7 @@ data/
 
 ## 수집 및 전처리 필터 정책
 
-정책은 `configs/kaist_ai_sources.yml`에서 조정합니다. 다른 대학원 사이트를 추가할 때는 같은 기본 정책을 재사용하고, 사이트별로 필요한 범위만 override합니다.
+정책은 기본적으로 `configs/kaist_sources.yml`에서 조정합니다. KAIST 내부 단과대학이나 학과 사이트를 추가할 때는 `institution=kaist`, `college`, `college_name`을 함께 지정해 같은 저장/검색 기준에 올립니다. 다른 대학원 사이트를 추가할 때는 같은 기본 정책을 재사용하고, 사이트별로 필요한 범위만 override합니다.
 
 - raw file policy: `max_file_size_mb`, `exclude_url_patterns`, `include_url_patterns`로 대용량 뉴스레터·매거진·연례보고서 같은 파일 다운로드를 사전에 제한합니다.
 - processing filter policy: 중복 raw sha256, 중복 문서 텍스트, 중복 chunk, 너무 짧은 문서, HTML shell, sheet 원본 전체 문서, SPA bundle text, 대용량/뉴스레터 PDF를 벡터 후보에서 제외합니다.
@@ -218,5 +257,5 @@ python -c "from pathlib import Path; print(Path('README.md').read_text(encoding=
 ```powershell
 python -m py_compile kaist_crawler\__main__.py kaist_crawler\__init__.py kaist_crawler\models.py kaist_crawler\config.py kaist_crawler\http_client.py kaist_crawler\store.py kaist_crawler\extractors.py kaist_crawler\rendering.py kaist_crawler\policies.py kaist_crawler\processor.py kaist_crawler\sheet_mapping.py kaist_crawler\site_analyzer.py kaist_crawler\vector_store.py kaist_crawler\adapters.py kaist_crawler\pipeline.py kaist_crawler\cli.py tests\test_config.py tests\test_policies.py tests\test_sheet_mapping.py tests\test_site_analyzer.py
 python -m unittest discover -s tests
-python -m kaist_crawler process --config configs\kaist_ai_sources.yml --output data --clean
+python -m kaist_crawler process --config configs\kaist_sources.yml --output data\kaist --clean
 ```

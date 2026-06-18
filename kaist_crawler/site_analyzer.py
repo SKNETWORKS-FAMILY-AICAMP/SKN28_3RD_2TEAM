@@ -9,6 +9,7 @@ from urllib.parse import urljoin, urlparse, urlunparse
 import yaml
 from bs4 import BeautifulSoup
 
+from .crawl_planner import CrawlPlan, SiteProfile, build_crawl_plan, build_site_profile
 from .extractors import extract_file_refs
 from .http_client import FetchResult, HttpClient
 
@@ -60,6 +61,14 @@ DEFAULT_SPA_ROUTES: tuple[str, ...] = (
 
 GOOGLE_SHEET_RE = re.compile(r"https://docs\.google\.com/spreadsheets/d/([A-Za-z0-9_-]+)")
 ROUTE_LIKE_RE = re.compile(r"""["'`](\/[A-Za-z0-9][A-Za-z0-9_./-]{1,80})["'`]""")
+LOW_VALUE_ROUTE_PARTS = (
+    "account",
+    "login",
+    "logout",
+    "privacy",
+    "sitemap",
+    "giving_alumni",
+)
 
 
 @dataclass(frozen=True)
@@ -84,8 +93,20 @@ class SiteAnalysis:
     crawl_notes: list[str] = field(default_factory=list)
     risks: list[str] = field(default_factory=list)
     evidence: dict[str, Any] = field(default_factory=dict)
+    site_profile: SiteProfile | None = None
+    crawl_plan: CrawlPlan | None = None
 
     def recommended_source(self) -> dict[str, Any]:
+        if self.crawl_plan:
+            source = self.crawl_plan.to_source_config(
+                robots_url=self.robots_url,
+                sitemap_status=self.sitemap_status,
+            )
+            if self.dynamic_routes:
+                source["dynamic_routes"] = self.dynamic_routes
+            if self.google_sheets:
+                source["google_sheets"] = self.google_sheets
+            return source
         source: dict[str, Any] = {
             "id": self.source_id,
             "name": self.name,
@@ -169,27 +190,57 @@ def analyze_site(
         google_sheet_ids=google_sheet_ids,
         fetched_asset_count=len(asset_results),
     )
-
-    return SiteAnalysis(
-        input_url=url,
+    resolved_source_id = source_id or source_id_from_url(final_url)
+    resolved_name = name or page_title or source_name_from_url(final_url)
+    site_profile = build_site_profile(
+        source_id=resolved_source_id,
+        name=resolved_name,
+        base_url=base_url,
         final_url=final_url,
-        source_id=source_id or source_id_from_url(final_url),
-        name=name or page_title or source_name_from_url(final_url),
         title=page_title,
         site_type=site_type,
         adapter=adapter,
         confidence=confidence,
-        routes=routes,
-        known_files=file_refs,
+        links=links,
+        asset_urls=asset_urls,
+        root_text=root_result.text,
+        asset_texts=asset_texts,
+        route_candidates=routes,
+        file_candidates=file_refs,
+        google_sheet_ids=google_sheet_ids,
+        robots_status=robots_status,
+        sitemap_status=sitemap_status,
+        risks=risks,
+        evidence=evidence,
+    )
+    crawl_plan = build_crawl_plan(site_profile)
+    plan_source = crawl_plan.to_source_config(
+        robots_url=robots_url,
+        sitemap_status=sitemap_status,
+    )
+
+    return SiteAnalysis(
+        input_url=url,
+        final_url=final_url,
+        source_id=resolved_source_id,
+        name=resolved_name,
+        title=page_title,
+        site_type=site_type,
+        adapter=adapter,
+        confidence=confidence,
+        routes=plan_source["routes"],
+        known_files=plan_source["known_files"],
         robots_url=robots_url,
         robots_status=robots_status,
         sitemap_url=sitemap_url,
         sitemap_status=sitemap_status,
         google_sheets=google_sheets,
-        raw=raw,
-        crawl_notes=notes,
+        raw=plan_source.get("raw", raw),
+        crawl_notes=[*notes, *crawl_plan.notes],
         risks=risks,
         evidence=evidence,
+        site_profile=site_profile,
+        crawl_plan=crawl_plan,
     )
 
 
@@ -265,23 +316,41 @@ def fetch_analyzer_assets(client: HttpClient, urls: list[str], *, max_assets: in
 
 def same_origin_links(base_url: str, content: str) -> list[str]:
     soup = BeautifulSoup(content, "html.parser")
-    urls: list[str] = []
+    ranked: list[tuple[int, int, str]] = []
     for tag in soup.find_all("a", href=True):
         href = str(tag["href"]).strip()
         if not href or href.startswith(("#", "mailto:", "tel:", "javascript:")):
             continue
-        append_unique(urls, urljoin(base_url, href))
-    return same_origin_only(base_url, urls)
+        text = " ".join(tag.stripped_strings)
+        ranked.append((-link_relevance_score(href=href, text=text), len(ranked), urljoin(base_url, href)))
+    ranked.sort()
+    urls: list[str] = []
+    for _, _, url in ranked:
+        append_unique(urls, url)
+    return same_origin_only(base_url, urls, preserve_query=True)
 
 
-def same_origin_only(base_url: str, urls: list[str]) -> list[str]:
+def link_relevance_score(*, href: str, text: str) -> int:
+    haystack = f"{href} {text}".lower()
+    score = 0
+    for hint in GRADUATE_ROUTE_HINTS:
+        if hint.lower() in haystack:
+            score += 2
+    if "document_srl=" in haystack:
+        score += 1
+    if any(part in haystack for part in LOW_VALUE_ROUTE_PARTS):
+        score -= 10
+    return score
+
+
+def same_origin_only(base_url: str, urls: list[str], *, preserve_query: bool = False) -> list[str]:
     origin = urlparse(base_url).netloc
     results: list[str] = []
     for url in urls:
         parsed = urlparse(url)
         if parsed.netloc != origin:
             continue
-        clean = parsed._replace(fragment="", query="").geturl()
+        clean = parsed._replace(fragment="", query=parsed.query if preserve_query else "").geturl()
         append_unique(results, clean)
     return results
 
@@ -293,7 +362,7 @@ def known_file_refs(base_url: str, texts: list[str]) -> list[str]:
             url = urljoin(base_url, ref)
             if is_probable_download_url(url):
                 append_unique(refs, url)
-    return same_origin_only(base_url, refs)
+    return same_origin_only(base_url, refs, preserve_query=True)
 
 
 def is_probable_download_url(url: str) -> bool:
@@ -432,17 +501,22 @@ def route_for_config(base_url: str, page_url: str) -> str:
         return ""
     base_path = base.path if base.path.endswith("/") else f"{base.path}/"
     page_path = page.path or "/"
+    query = f"?{page.query}" if page.query else ""
     if base_path in ("", "/"):
-        return page_path
+        return f"{page_path}{query}"
     if page_path == base_path.rstrip("/"):
-        return ""
+        return query or ""
     if page_path.startswith(base_path):
-        return page_path.removeprefix(base_path)
-    return page_path
+        return f"{page_path.removeprefix(base_path)}{query}"
+    return f"{page_path}{query}"
 
 
 def is_relevant_route(route: str) -> bool:
     lowered = route.lower()
+    if any(part in lowered for part in LOW_VALUE_ROUTE_PARTS):
+        return False
+    if "mid=" in lowered or "document_srl=" in lowered:
+        return True
     if any(part in lowered for part in ("/wp-json", "/api/", "/assets/", "/static/", "/css/", "/js/")):
         return False
     if lowered.endswith(

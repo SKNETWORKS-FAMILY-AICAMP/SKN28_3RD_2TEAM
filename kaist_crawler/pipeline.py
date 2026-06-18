@@ -9,6 +9,7 @@ from .config import load_crawler_config, load_sources
 from .http_client import HttpClient
 from .models import Chunk, Document, SourceConfig
 from .processor import process_raw_documents
+from .quality_gate import build_quality_gate_report, load_quality_gate_inputs, write_quality_gate_report
 from .store import RawStore
 from .vector_store import build_vector_store
 
@@ -127,7 +128,36 @@ def process_raw_data_from_sources(
     write_jsonl(processed_root / "chunks.jsonl", [chunk.to_dict() for chunk in chunks])
     write_jsonl(processed_root / "errors.jsonl", all_errors)
     write_jsonl(processed_root / "filtered.jsonl", filtered)
+    write_quality_gate_report(
+        processed_root,
+        build_quality_gate_report(
+            documents=documents,
+            chunks=chunks,
+            errors=all_errors,
+            filtered=filtered,
+            sources=sources,
+        ),
+    )
     return documents, chunks, all_errors, filtered
+
+
+def build_quality_gate_from_processed(
+    *,
+    output_root: str | Path,
+    config_path: str | Path | None = None,
+    source_ids: set[str] | None = None,
+) -> dict:
+    sources = load_sources(config_path, source_ids) if config_path else None
+    documents, chunks, errors, filtered = load_quality_gate_inputs(output_root)
+    report = build_quality_gate_report(
+        documents=documents,
+        chunks=chunks,
+        errors=errors,
+        filtered=filtered,
+        sources=sources,
+    )
+    write_quality_gate_report(Path(output_root) / "processed", report)
+    return report.to_dict()
 
 
 def build_vectors_from_chunks(
